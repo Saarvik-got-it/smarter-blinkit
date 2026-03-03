@@ -2,13 +2,32 @@
 
 > An AI-powered marketplace connecting buyers and local sellers. Instead of item-by-item searching, simply describe what you need — the AI fills your cart automatically.
 
-**Status:  All 4 Stages Complete — Foundation, Automator, Orchestrator, God Mode**
+**Status: 🟢 All 4 Stages Completed Partially — Foundation, Automator, Orchestrator, God Mode**
 
-**NOTE:** The platform is still under production and some of the features are not working as expected. Also the database is not fully populated with the products and shops. There are some issues with the Gemnini API which will be resolved soon.
+**NOTE:** Currently working extensively on stage 1. The platform is still under production and some of the features are not working as expected. Also the database is not fully populated with the products and shops. There are some issues with the Gemnini API which will be resolved soon.
+---
+
+## 📸 Screenshots
+
+| Shop — Product Grid | Text Search ("pizza") |
+|---|---|
+| ![Shop Grid](docs/screenshots/shop_grid.png) | ![Pizza Search](docs/screenshots/text_search.png) |
+
+| 🧠 AI Intent Search ("I have a cold") | Product Detail + Neo4j Suggestions |
+|---|---|
+| ![AI Intent](docs/screenshots/ai_intent.png) | ![Product Detail](docs/screenshots/product_detail.png) |
+
+| 🤖 AI Recipe Agent | 📡 Live Storeboard |
+|---|---|
+| ![AI Agent](docs/screenshots/ai_agent.png) | ![Storeboard](docs/screenshots/storeboard.png) |
+
+| 🗺️ Money Map (Leaflet.js) | Buyer Dashboard |
+|---|---|
+| ![alt text](image.png) | ![Dashboard](docs/screenshots/dashboard.png) |
 
 ---
 
-## 📸 Project Overview
+## � Project Overview
 
 Smarter BlinkIt is a full-stack web application built around the concept of an **AI Shopping Assistant** and a **Barcode-based Inventory System** for sellers.
 
