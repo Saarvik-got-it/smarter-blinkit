@@ -1,5 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import CartSidebar from '@/components/CartSidebar';
 import { useApp } from '@/lib/context';
@@ -93,14 +95,18 @@ export default function ShopPage() {
                             <div className="product-grid">
                                 {products.map(p => (
                                     <div key={p._id} className="product-card">
-                                        <div className="product-card-image">
-                                            {p.image ? <img src={p.image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : getCategoryEmoji(p.category)}
-                                        </div>
-                                        {p.stock < 10 && p.stock > 0 && <span className="product-badge" style={{ background: 'var(--warning)', color: '#2d1a00' }}>Low Stock</span>}
-                                        {p.stock === 0 && <span className="product-badge" style={{ background: 'var(--danger)', color: '#fff' }}>Out of Stock</span>}
-                                        <div className="product-card-body">
-                                            <div className="product-card-name">{p.name}</div>
-                                            <div className="product-card-shop">🏪 {p.shopId?.name || 'Local Shop'}</div>
+                                        <Link href={`/shop/${p._id}`} style={{ display: 'block' }}>
+                                            <div className="product-card-image">
+                                                {p.image ? <img src={p.image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : getCategoryEmoji(p.category)}
+                                            </div>
+                                            {p.stock < 10 && p.stock > 0 && <span className="product-badge" style={{ background: 'var(--warning)', color: '#2d1a00' }}>Low Stock</span>}
+                                            {p.stock === 0 && <span className="product-badge" style={{ background: 'var(--danger)', color: '#fff' }}>Out of Stock</span>}
+                                            <div className="product-card-body">
+                                                <div className="product-card-name">{p.name}</div>
+                                                <div className="product-card-shop">🏪 {p.shopId?.name || 'Local Shop'}</div>
+                                            </div>
+                                        </Link>
+                                        <div style={{ padding: '0 14px 14px' }}>
                                             <div className="product-card-footer">
                                                 <div>
                                                     <div className="product-card-price">₹{p.price}</div>

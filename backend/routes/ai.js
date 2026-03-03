@@ -12,7 +12,7 @@ router.post('/recipe-agent', protect, requireRole('buyer'), async (req, res) => 
         const { prompt, lat, lng } = req.body;
         if (!prompt) return res.status(400).json({ success: false, message: 'Prompt is required' });
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
         const systemPrompt = `You are a smart grocery shopping assistant. 
 The user will describe a meal, recipe, or need in natural language.
@@ -79,12 +79,15 @@ Rules:
 // POST /api/ai/intent-search — semantic "I have a cold" → relevant products
 router.post('/intent-search', async (req, res) => {
     try {
-        const { query, lat, lng } = req.body;
+        const { query } = req.body;
         if (!query) return res.status(400).json({ success: false, message: 'Query required' });
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        let keywords = [];
+        let usedFallback = false;
 
-        const searchPrompt = `You are a smart search assistant for a grocery/pharmacy/daily needs marketplace.
+        try {
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const searchPrompt = `You are a smart search assistant for a grocery/pharmacy/daily needs marketplace.
 Expand the following user query into specific product keywords to search for.
 Respond ONLY with a valid JSON array of strings (max 8 keywords), no markdown:
 ["keyword1", "keyword2", ...]
@@ -95,16 +98,16 @@ Examples:
 "healthy breakfast" → ["oats", "granola", "milk", "banana", "eggs", "whole wheat bread"]
 
 User query: "${query}"`;
-
-        const result = await model.generateContent(searchPrompt);
-        const text = result.response.text().trim();
-
-        let keywords;
-        try {
+            const result = await model.generateContent(searchPrompt);
+            const text = result.response.text().trim();
             const jsonMatch = text.match(/\[[\s\S]*\]/);
             keywords = jsonMatch ? JSON.parse(jsonMatch[0]) : [query];
-        } catch {
-            keywords = [query];
+        } catch (aiErr) {
+            // Rate-limit or API error — fallback to splitting query words
+            console.warn('Gemini fallback triggered:', aiErr.message?.slice(0, 80));
+            usedFallback = true;
+            keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            if (!keywords.length) keywords = [query];
         }
 
         // Search for each keyword
@@ -121,7 +124,7 @@ User query: "${query}"`;
         }
 
         const results = Array.from(productMap.values());
-        res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results });
+        res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

@@ -26,8 +26,10 @@ export default function Navbar() {
                                 <>
                                     <Link href="/shop" className={`navbar-link ${pathname.startsWith('/shop') ? 'active' : ''}`}>Shop</Link>
                                     <Link href="/ai-agent" className={`navbar-link ${pathname.startsWith('/ai-agent') ? 'active' : ''}`}>
-                                        <span className="ai-badge" style={{ fontSize: '0.65rem' }}>AI</span> Recipe Agent
+                                        <span className="ai-badge" style={{ fontSize: '0.65rem' }}>AI</span> Agent
                                     </Link>
+                                    <Link href="/storeboard" className={`navbar-link ${pathname.startsWith('/storeboard') ? 'active' : ''}`}>📡 Live</Link>
+                                    <Link href="/money-map" className={`navbar-link ${pathname.startsWith('/money-map') ? 'active' : ''}`}>🗺 Map</Link>
                                 </>
                             )}
                             {user.role === 'buyer' && (
