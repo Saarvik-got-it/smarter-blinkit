@@ -1,0 +1,63 @@
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const http = require('http');
+const { Server } = require('socket.io');
+require('dotenv').config();
+
+const authRoutes = require('./routes/auth');
+const productRoutes = require('./routes/products');
+const orderRoutes = require('./routes/orders');
+const shopRoutes = require('./routes/shops');
+const paymentRoutes = require('./routes/payments');
+const aiRoutes = require('./routes/ai');
+const storeboardSocket = require('./sockets/storeboard');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+  },
+});
+
+// Middleware
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true }));
+app.use(morgan('dev'));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Attach io to requests
+app.use((req, _, next) => { req.io = io; next(); });
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/shops', shopRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/ai', aiRoutes);
+
+app.get('/api/health', (_, res) => res.json({ status: 'OK', time: new Date() }));
+
+// Socket.io
+storeboardSocket(io);
+
+// MongoDB Connection
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log('✅ MongoDB connected');
+    const PORT = process.env.PORT || 5000;
+    server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+  })
+  .catch((err) => {
+    console.error('❌ MongoDB connection error:', err);
+    process.exit(1);
+  });
+
+module.exports = { app, server };
