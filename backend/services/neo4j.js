@@ -13,17 +13,76 @@ const getDriver = () => {
     return driver;
 };
 
-// Create or update a product node
-async function upsertProduct(productId, name, category) {
+// Create or update a product node with optional vector embedding
+async function upsertProduct(productId, name, category, embedding = null) {
     const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
     try {
-        await session.run(
-            `MERGE (p:Product {id: $productId})
-       SET p.name = $name, p.category = $category`,
-            { productId, name, category }
-        );
+        if (embedding && embedding.length > 0) {
+            await session.run(
+                `MERGE (p:Product {id: $productId})
+                 SET p.name = $name, p.category = $category, p.embedding = $embedding`,
+                { productId, name, category, embedding }
+            );
+        } else {
+            // Fallback for non-vectorized inserts
+            await session.run(
+                `MERGE (p:Product {id: $productId})
+                 SET p.name = $name, p.category = $category`,
+                { productId, name, category }
+            );
+        }
     } catch (err) {
         console.error('Neo4j upsertProduct error:', err.message);
+    } finally {
+        await session.close();
+    }
+}
+
+// Initialize Vector Index for Semantic Search (3072 dimensions for gemini-embedding-001)
+async function initVectorIndex() {
+    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    try {
+        // Drop index if it exists in case we change dimension sizes (ignoring error if it doesn't)
+        try { await session.run(`DROP INDEX product_embeddings IF EXISTS`); } catch (e) { }
+
+        // Create the vector index on Product.embedding
+        await session.run(`
+            CREATE VECTOR INDEX product_embeddings IF NOT EXISTS
+            FOR (p:Product)
+            ON (p.embedding)
+            OPTIONS {indexConfig: {
+                \`vector.dimensions\`: 3072,
+                \`vector.similarity_function\`: 'cosine'
+            }}
+        `);
+        console.log('Neo4j vector index initialized successfully.');
+    } catch (err) {
+        console.error('Neo4j initVectorIndex error:', err.message);
+    } finally {
+        await session.close();
+    }
+}
+
+// Perform Semantic Search via nearest neighbors (Cosine Similarity)
+async function semanticSearch(queryVector, limit = 5) {
+    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    try {
+        const result = await session.run(
+            `CALL db.index.vector.queryNodes('product_embeddings', $limit, $queryVector)
+             YIELD node, score
+             RETURN node.id AS id, node.name AS name, score
+             ORDER BY score DESC`,
+            { queryVector, limit }
+        );
+
+        return result.records.map((r) => ({
+            id: r.get('id'),
+            name: r.get('name'),
+            score: r.get('score'),
+        }));
+    } catch (err) {
+        console.error('Neo4j semanticSearch error:', err.message);
+        return [];
     } finally {
         await session.close();
     }
@@ -121,4 +180,4 @@ async function closeDriver() {
     if (driver) { await driver.close(); driver = null; }
 }
 
-module.exports = { upsertProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver };
+module.exports = { upsertProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver, initVectorIndex, semanticSearch };

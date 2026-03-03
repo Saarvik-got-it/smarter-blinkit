@@ -2,9 +2,41 @@ const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Product = require('../models/Product');
 const { protect, requireRole } = require('../middleware/auth');
+const neo4jService = require('../services/neo4j');
 
 const router = express.Router();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// ─────────────────────────────────────────────
+// Shared helper: generate Gemini text-embedding-004
+// ─────────────────────────────────────────────
+async function generateEmbedding(text) {
+    try {
+        const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+        const result = await model.embedContent(text);
+        return result.embedding.values;
+    } catch (err) {
+        console.error('Error generating embedding:', err);
+        return null;
+    }
+}
+
+// ─────────────────────────────────────────────
+// Shared helper: regex search for a single keyword across product fields
+// Uses regex (not $text) so partial/multi-word terms like "ginger tea" work correctly
+// ─────────────────────────────────────────────
+async function searchByKeyword(kw, limit = 6) {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escaped, 'i');
+    return Product.find({
+        $or: [{ name: rx }, { description: rx }, { category: rx }, { barcode: rx }],
+        isAvailable: true,
+        stock: { $gt: 0 },
+    })
+        .populate('shopId', 'name location rating')
+        .sort({ salesCount: -1 })
+        .limit(limit);
+}
 
 // POST /api/ai/recipe-agent — "Make pizza for 4 people" → cart items
 router.post('/recipe-agent', protect, requireRole('buyer'), async (req, res) => {
@@ -57,13 +89,27 @@ Rules:
         const notFound = [];
 
         for (const ingredient of ingredients) {
-            const products = await Product.find({
-                $text: { $search: ingredient.searchQuery },
-                isAvailable: true,
-                stock: { $gt: 0 },
-            })
-                .populate('shopId', 'name location')
-                .limit(3);
+            // ✅ Use semantic vector search for ingredients
+            let products = [];
+            const queryVector = await generateEmbedding(ingredient.searchQuery);
+            if (queryVector) {
+                const semanticResults = await neo4jService.semanticSearch(queryVector, 3);
+                const productIds = semanticResults.map(r => r.id);
+                // Fetch full product details from Mongo matching these IDs
+                products = await Product.find({
+                    _id: { $in: productIds },
+                    isAvailable: true,
+                    stock: { $gt: 0 }
+                }).populate('shopId', 'name location rating');
+
+                // Sort to match the Neo4j semantic similarity score order
+                products.sort((a, b) => productIds.indexOf(a._id.toString()) - productIds.indexOf(b._id.toString()));
+            }
+
+            // Fallback to regex if embedding fails or no products found
+            if (!products.length) {
+                products = await searchByKeyword(ingredient.searchQuery, 3);
+            }
 
             if (products.length) {
                 cartItems.push({
@@ -120,25 +166,41 @@ User query: "${query}"`;
             if (!keywords.length) keywords = [query];
         }
 
-        // Search for each keyword safely
-        const productMap = new Map();
-        try {
-            for (const kw of keywords) {
-                const products = await Product.find({
-                    $text: { $search: kw },
-                    isAvailable: true,
-                    stock: { $gt: 0 },
-                })
-                    .populate('shopId', 'name location rating')
-                    .limit(5);
-                products.forEach((p) => productMap.set(p._id.toString(), { product: p, matchedKeyword: kw }));
+        // ✅ Use semantic vector search for the overall query or keywords
+        const productMatchMap = new Map(); // productId → product
+
+        // 1. Try vector search on the raw user query first to catch high-level semantics
+        const queryVector = await generateEmbedding(query);
+        if (queryVector) {
+            const semanticResults = await neo4jService.semanticSearch(queryVector, 8);
+            const productIds = semanticResults.map(r => r.id);
+            const products = await Product.find({
+                _id: { $in: productIds },
+                isAvailable: true,
+                stock: { $gt: 0 }
+            }).populate('shopId', 'name location rating');
+
+            for (const p of products) {
+                productMatchMap.set(p._id.toString(), { product: p, matchedKeyword: 'Semantic Match', count: 5 }); // High weight for direct semantic match
             }
-        } catch (dbErr) {
-            console.error('DB error during intent search fallback:', dbErr.message);
-            // If DB text search fails (e.g. index issue), just return empty instead of 500
         }
 
-        const results = Array.from(productMap.values());
+        // 2. Also search via expanded keywords (regex fallback/boost)
+        for (const kw of keywords) {
+            const products = await searchByKeyword(kw, 3);
+            for (const p of products) {
+                const id = p._id.toString();
+                if (productMatchMap.has(id)) {
+                    productMatchMap.get(id).count++;
+                } else {
+                    productMatchMap.set(id, { product: p, matchedKeyword: kw, count: 1 });
+                }
+            }
+        }
+
+        // Sort by number of keyword matches (most relevant first), then by salesCount
+        const results = Array.from(productMatchMap.values())
+            .sort((a, b) => b.count - a.count || (b.product.salesCount || 0) - (a.product.salesCount || 0));
         res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback });
     } catch (err) {
         console.error('Critical intent search error:', err);

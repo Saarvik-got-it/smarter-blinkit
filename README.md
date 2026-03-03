@@ -55,7 +55,7 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 - **Role-based Routing**: Seamless redirection post-login preventing back-button loops.
 - **Face ID Login**: Register your face once, then log in just by looking at the camera (face-api.js), now integrated directly into the signup flow.
 - **Theme Consistency**: Fully reactive Light/Dark CSS Variable Theme architecture across the app.
-- **Live Sync Search**: Product search auto-updates as you type with debouncing for a smooth experience.
+- **Progressive Smart Search**: Google-like live search — results update as you type. Typing `V` instantly returns Vicks, Vitamins, Vegetables etc. No need to type the full keyword.
 
 ### Stage 2 — The Automator ✅
 - **AI Recipe Agent**: Type "Make pizza for 4 people" → Gemini extracts ingredients → matches nearest shop products → one-click cart fill.
@@ -69,7 +69,7 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 - **Live Storeboard**: Real-time Socket.io dashboard showing top-selling products and top-rated shops.
 - **Smart Cart Splitting**: Multi-shop orders auto-split per shop.
 - **Product Detail Page**: Full product info with quantity selector and Neo4j-powered Smart Suggestions.
-- **Category & Shop Filters**: Browse products by specific shops or categories effortlessly.
+- **Live Dynamic Filters**: Categories and Shops are fetched live from the database. Any new shop or category added by a seller is instantly reflected for all buyers. Shop filter ensures you can browse specific catalogs effortlessly.
 
 ### Bonus / God Mode ✅
 - **Money Map**: Leaflet.js + OpenStreetMap heatmap showing which shops drive the most revenue.

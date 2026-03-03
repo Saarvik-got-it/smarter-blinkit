@@ -6,6 +6,16 @@ const { protect, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// GET /api/shops/all — all shops, no geo/isOpen filter (used for buyer shop-filter dropdown)
+router.get('/all', async (req, res) => {
+    try {
+        const shops = await Shop.find({}).select('_id name location phone isOpen').sort({ name: 1 });
+        res.json({ success: true, shops });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // GET /api/shops/nearby?lat=&lng=&radius=10000
 router.get('/nearby', async (req, res) => {
     try {

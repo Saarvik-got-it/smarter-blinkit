@@ -3,42 +3,74 @@ const Product = require('../models/Product');
 const Shop = require('../models/Shop');
 const { protect, requireRole } = require('../middleware/auth');
 const neo4jService = require('../services/neo4j');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const router = express.Router();
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// GET /api/products/search?q=&lat=&lng=&category=&limit=
+// Helper function to dynamically generate and sync embeddings
+async function generateAndSyncEmbedding(product) {
+    try {
+        const textToEmbed = `${product.name} ${product.category} ${product.description || ''}`.trim();
+        const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+        const result = await model.embedContent(textToEmbed);
+        const embedding = result.embedding.values;
+
+        product.embedding = embedding;
+        await product.save();
+        await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, embedding);
+    } catch (err) {
+        console.error('Failed to generate/sync embedding for product:', product.name, err.message);
+        // Fallback to text-only sync if embedding fails
+        await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, []);
+    }
+}
+
+// GET /api/products/categories — get all unique categories currently in DB
+router.get('/categories', async (req, res) => {
+    try {
+        const categories = await Product.distinct('category');
+        res.json({ success: true, categories });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/products/search?q=&lat=&lng=&category=&shopId=&limit=
 router.get('/search', async (req, res) => {
     try {
-        const { q = '', lat, lng, category, limit = 20 } = req.query;
-        let query = { isAvailable: true, stock: { $gt: 0 } };
+        const { q = '', lat, lng, category, shopId, limit = 40 } = req.query;
+        let baseQuery = { isAvailable: true, stock: { $gt: 0 } };
 
-        if (category) query.category = new RegExp(category, 'i');
+        if (category) baseQuery.category = new RegExp(category, 'i');
+        if (shopId) baseQuery.shopId = shopId;
 
-        let products;
-        if (q) {
-            // Text search first
-            products = await Product.find({ $text: { $search: q }, ...query })
-                .populate('shopId', 'name location rating isOpen')
-                .limit(Number(limit));
+        let products = [];
 
-            // If nearby filter, post-filter by distance
-            if (lat && lng && products.length) {
-                const nearbyShopIds = await getNearbyShopIds(lat, lng, 10000);
-                products = products.filter((p) =>
-                    nearbyShopIds.includes(p.shopId?._id?.toString())
-                );
-            }
+        // 1. Fetch products based on text query or category
+        if (q.trim()) {
+            // Regex-based progressive search (matches V, VI, VIC... for Vicks)
+            const term = q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const textRegex = new RegExp(term, 'i');
+            products = await Product.find({
+                $or: [
+                    { name: textRegex },
+                    { description: textRegex },
+                    { category: textRegex },
+                    { barcode: textRegex },
+                ],
+                ...baseQuery,
+            }).populate('shopId').limit(Number(limit));
+        } else if (category || shopId) {
+            products = await Product.find(baseQuery).populate('shopId').limit(Number(limit));
         } else if (lat && lng) {
-            const nearbyShopIds = await getNearbyShopIds(lat, lng, 10000);
-            products = await Product.find({ shopId: { $in: nearbyShopIds }, ...query })
-                .populate('shopId', 'name location rating isOpen')
-                .sort({ salesCount: -1 })
+            // Default "Discovery" Mode: Find nearby items first
+            const nearbyShopIds = await getNearbyShopIds(lat, lng, 30000); // 30km range for discovery
+            products = await Product.find({ shopId: { $in: nearbyShopIds }, ...baseQuery })
+                .populate('shopId')
                 .limit(Number(limit));
         } else {
-            products = await Product.find(query)
-                .populate('shopId', 'name location rating isOpen')
-                .sort({ salesCount: -1 })
-                .limit(Number(limit));
+            products = await Product.find(baseQuery).populate('shopId').limit(Number(limit));
         }
 
         res.json({ success: true, count: products.length, products });
@@ -87,8 +119,8 @@ router.post('/', protect, requireRole('seller'), async (req, res) => {
 
         const product = await Product.create({ ...req.body, shopId: shop._id });
 
-        // Sync to Neo4j
-        await neo4jService.upsertProduct(product._id.toString(), product.name, product.category);
+        // Generate embedding and sync to Mongo/Neo4j
+        await generateAndSyncEmbedding(product);
 
         res.status(201).json({ success: true, product });
     } catch (err) {
@@ -106,6 +138,10 @@ router.put('/:id', protect, requireRole('seller'), async (req, res) => {
             { new: true, runValidators: true }
         );
         if (!product) return res.status(404).json({ success: false, message: 'Product not found or unauthorized' });
+
+        // Re-generate embedding in case name/category/desc changed
+        await generateAndSyncEmbedding(product);
+
         res.json({ success: true, product });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
@@ -139,7 +175,7 @@ router.post('/barcode/update', protect, requireRole('seller'), async (req, res) 
             await product.save();
         } else if (productData) {
             product = await Product.create({ ...productData, barcode, shopId: shop._id });
-            await neo4jService.upsertProduct(product._id.toString(), product.name, product.category);
+            await generateAndSyncEmbedding(product);
         } else {
             return res.status(404).json({ success: false, message: 'Product not found. Provide productData to create.' });
         }

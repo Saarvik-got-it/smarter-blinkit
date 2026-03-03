@@ -130,3 +130,13 @@ router.delete('/delete-account', protect, async (req, res) => {
 
 module.exports = router;
 
+// Helper: Calculate Euclidean Distance between two feature vectors
+function euclideanDistance(arr1, arr2) {
+    if (arr1.length !== arr2.length) return Infinity;
+    let sum = 0;
+    for (let i = 0; i < arr1.length; i++) {
+        sum += Math.pow(arr1[i] - arr2[i], 2);
+    }
+    return Math.sqrt(sum);
+}
+

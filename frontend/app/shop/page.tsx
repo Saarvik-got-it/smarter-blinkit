@@ -11,19 +11,21 @@ export default function ShopPage() {
     const [products, setProducts] = useState<any[]>([]);
     const [query, setQuery] = useState('');
     const [category, setCategory] = useState('');
-    const emoji: Record<string, string> = { Groceries: '🌾', Dairy: '🥛', Fresh: '🥬', Pharmacy: '💊', Beverages: '🥤', Snacks: '🍿', Electronics: '📱' };
-    const getCategoryEmoji = (cat: string) => emoji[cat] || '📦';
-    const categoriesList = Object.keys(emoji);
-
     const [loading, setLoading] = useState(false);
     const [searchMode, setSearchMode] = useState<'text' | 'intent'>('text');
     const [expandedKeywords, setExpandedKeywords] = useState<string[]>([]);
     const [availableShops, setAvailableShops] = useState<any[]>([]);
     const [selectedShop, setSelectedShop] = useState('');
+    const [categoriesList, setCategoriesList] = useState<string[]>([]);
+
+    const emoji: Record<string, string> = { Groceries: '🌾', Dairy: '🥛', Fresh: '🥬', Pharmacy: '💊', Beverages: '🥤', Snacks: '🍿', Electronics: '📱', Staples: '🍚', Stationery: '✏️', Meat: '🥩', Bakery: '🍞' };
+    const getCategoryEmoji = (cat: string) => emoji[cat] || '📦';
 
     useEffect(() => {
-        // Fetch nearby shops for the filter dropdown
-        api.get('/shops/nearby?lat=0&lng=0&radius=100000').then((r) => setAvailableShops(r.data.shops)).catch(() => { });
+        // Fetch all shops for the filter dropdown
+        api.get('/shops/all').then((r) => setAvailableShops(r.data.shops || [])).catch(() => { });
+        // Fetch dynamic categories
+        api.get('/products/categories').then((r) => setCategoriesList(r.data.categories || [])).catch(() => { });
     }, [api]);
 
     const doSearch = async (q: string, cat: string, shop: string) => {
@@ -31,10 +33,11 @@ export default function ShopPage() {
         try {
             if (searchMode === 'intent' && q) {
                 const { data } = await api.post('/ai/intent-search', { query: q });
-                let intentProducts = data.results?.map((r: any) => r.product) || [];
-                if (shop) intentProducts = intentProducts.filter((p: any) => p.shopId?._id === shop);
-                if (cat) intentProducts = intentProducts.filter((p: any) => p.category === cat);
-                setProducts(intentProducts);
+                let intentResults = data.results || [];
+                // Frontend-side shop/category filtering for AI results
+                if (shop) intentResults = intentResults.filter((r: any) => r.product?.shopId?._id === shop);
+                if (cat) intentResults = intentResults.filter((r: any) => r.product?.category === cat);
+                setProducts(intentResults.map((r: any) => r.product));
                 setExpandedKeywords(data.expandedKeywords || []);
             } else {
                 const { data } = await api.get('/products/search', { params: { q, category: cat, shopId: shop, limit: 40 } });
