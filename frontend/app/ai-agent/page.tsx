@@ -15,7 +15,7 @@ export default function AIAgentPage() {
     const { api, addToCart, user, toast } = useApp();
     const [prompt, setPrompt] = useState('');
     const [loading, setLoading] = useState(false);
-    const [results, setResults] = useState<{ cartItems: CartSuggestion[]; notFound: any[]; ingredients: any[] } | null>(null);
+    const [results, setResults] = useState<{ cartItems: CartSuggestion[]; notFound: any[]; ingredients: any[]; fallback?: boolean } | null>(null);
     const [selected, setSelected] = useState<Set<string>>(new Set());
 
     const examples = ['Make pizza for 4 people', 'Biryani for 6 people', 'Healthy breakfast for the week', 'I have a cold, suggest remedies', 'Movie night snacks'];
@@ -110,6 +110,11 @@ export default function AIAgentPage() {
                     {/* Results */}
                     {results && !loading && (
                         <div>
+                            {results.fallback && (
+                                <div style={{ background: 'rgba(255, 170, 0, 0.08)', border: '1px solid rgba(255, 170, 0, 0.25)', borderRadius: 'var(--radius-md)', padding: '10px 14px', marginBottom: 16, fontSize: '0.82rem', color: '#ffaa00', display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    ⚡ AI is currently busy — showing keyword-based matches instead. Results may be broader.
+                                </div>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                                 <h2 style={{ fontSize: '1.2rem' }}>
                                     Found {results.cartItems.length} ingredient{results.cartItems.length !== 1 ? 's' : ''}

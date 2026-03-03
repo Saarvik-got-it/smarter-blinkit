@@ -9,12 +9,16 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // POST /api/ai/recipe-agent — "Make pizza for 4 people" → cart items
 router.post('/recipe-agent', protect, requireRole('buyer'), async (req, res) => {
     try {
-        const { prompt, lat, lng } = req.body;
+        const { prompt } = req.body;
         if (!prompt) return res.status(400).json({ success: false, message: 'Prompt is required' });
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        let ingredients = [];
+        let usedFallback = false;
 
-        const systemPrompt = `You are a smart grocery shopping assistant. 
+        // --- Try Gemini first ---
+        try {
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const systemPrompt = `You are a smart grocery shopping assistant. 
 The user will describe a meal, recipe, or need in natural language.
 Extract a list of grocery items with quantities needed.
 Respond ONLY with a valid JSON array (no markdown, no explanation) in this exact format:
@@ -28,19 +32,24 @@ Rules:
 - If quantity is unclear, use a reasonable default
 - If the request is not food/grocery related, return an empty array []`;
 
-        const result = await model.generateContent([systemPrompt, `User request: ${prompt}`]);
-        const text = result.response.text().trim();
-
-        let ingredients;
-        try {
+            const result = await model.generateContent([systemPrompt, `User request: ${prompt}`]);
+            const text = result.response.text().trim();
             const jsonMatch = text.match(/\[[\s\S]*\]/);
             ingredients = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-        } catch {
-            return res.status(500).json({ success: false, message: 'AI could not parse the request', raw: text });
+        } catch (aiErr) {
+            // 429 rate limit or any Gemini error — fallback to keyword extraction from prompt
+            const isRateLimit = aiErr.message?.includes('429') || aiErr.message?.includes('quota') || aiErr.message?.includes('Too Many Requests');
+            console.warn(`AI recipe-agent fallback (${isRateLimit ? 'rate-limit' : 'error'}):`, aiErr.message?.slice(0, 80));
+            usedFallback = true;
+
+            // Extract meaningful words from prompt as search queries
+            const stopWords = new Set(['make', 'for', 'people', 'i', 'a', 'the', 'and', 'with', 'some', 'need', 'want', 'prepare', 'cook', 'please', 'me', 'us', 'my', 'have', 'get', 'find', 'give', 'some', 'how']);
+            const words = prompt.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+            ingredients = words.slice(0, 6).map(w => ({ item: w, quantity: 1, unit: 'piece', searchQuery: w }));
         }
 
         if (!ingredients.length) {
-            return res.json({ success: true, ingredients: [], products: [], cartItems: [] });
+            return res.json({ success: true, ingredients: [], cartItems: [], notFound: [], fallback: usedFallback });
         }
 
         // Find matching products for each ingredient
@@ -69,10 +78,10 @@ Rules:
             }
         }
 
-        res.json({ success: true, prompt, ingredients, cartItems, notFound });
+        res.json({ success: true, prompt, ingredients, cartItems, notFound, fallback: usedFallback });
     } catch (err) {
         console.error('AI recipe agent error:', err);
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: 'Something went wrong with the AI agent. Please try again.' });
     }
 });
 
@@ -104,7 +113,7 @@ User query: "${query}"`;
             keywords = jsonMatch ? JSON.parse(jsonMatch[0]) : [query];
         } catch (aiErr) {
             // Rate-limit or API error — fallback to splitting query words
-            console.warn('Gemini fallback triggered:', aiErr.message?.slice(0, 80));
+            console.warn('Gemini intent-search fallback:', aiErr.message?.slice(0, 80));
             usedFallback = true;
             keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
             if (!keywords.length) keywords = [query];
@@ -126,7 +135,7 @@ User query: "${query}"`;
         const results = Array.from(productMap.values());
         res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: 'Search failed. Please try again.' });
     }
 });
 
