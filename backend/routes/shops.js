@@ -92,6 +92,28 @@ router.get('/my', protect, requireRole('seller'), async (req, res) => {
     }
 });
 
+// POST /api/shops — create a shop for the logged-in seller (if they didn't set one up at registration)
+router.post('/', protect, requireRole('seller'), async (req, res) => {
+    try {
+        const existing = await Shop.findOne({ ownerId: req.user._id });
+        if (existing) return res.status(409).json({ success: false, message: 'You already have a shop. Use PUT /api/shops/my to update it.' });
+
+        const { name, address, phone } = req.body;
+        if (!name) return res.status(400).json({ success: false, message: 'Shop name is required' });
+
+        const shop = await Shop.create({
+            name,
+            ownerId: req.user._id,
+            phone: phone || '',
+            location: { type: 'Point', coordinates: [0, 0], address: address || '' },
+        });
+        res.status(201).json({ success: true, shop });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+
 // PUT /api/shops/my — update seller's shop
 router.put('/my', protect, requireRole('seller'), async (req, res) => {
     try {

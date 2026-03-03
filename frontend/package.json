@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "axios": "^1.13.6",
     "next": "16.1.6",
     "quagga": "^0.12.1",

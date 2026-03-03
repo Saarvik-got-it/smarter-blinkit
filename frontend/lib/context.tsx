@@ -19,6 +19,9 @@ interface AppContextType {
     login: (email: string, password: string) => Promise<User>;
     register: (data: object) => Promise<User>;
     logout: () => boolean;
+    // ✅ NEW: Used by FaceLogin to update context state after a face scan
+    setUserFromToken: (token: string, user: User) => void;
+    deleteAccount: () => Promise<boolean>;
     addToCart: (item: CartItem) => void;
     removeFromCart: (productId: string) => void;
     updateQty: (productId: string, delta: number) => void;
@@ -38,13 +41,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const [cart, setCart] = useState<CartItem[]>([]);
     const [cartOpen, setCartOpen] = useState(false);
     const [toasts, setToasts] = useState<{ id: number; msg: string; type: string }[]>([]);
+    // Track if we've finished hydrating from localStorage (prevents flash of logged-out state)
+    const [hydrated, setHydrated] = useState(false);
 
     useEffect(() => {
         const t = localStorage.getItem('sb_token');
         const u = localStorage.getItem('sb_user');
-        if (t && u) { setToken(t); setUser(JSON.parse(u)); }
+        if (t && u) {
+            try {
+                setToken(t);
+                setUser(JSON.parse(u));
+            } catch {
+                // Corrupted data — clear it
+                localStorage.removeItem('sb_token');
+                localStorage.removeItem('sb_user');
+            }
+        }
         const c = localStorage.getItem('sb_cart');
-        if (c) setCart(JSON.parse(c));
+        if (c) {
+            try { setCart(JSON.parse(c)); } catch { /* ignore */ }
+        }
+        setHydrated(true);
     }, []);
 
     useEffect(() => {
@@ -73,11 +90,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return data.user;
     };
 
+    // ✅ FIX: Used by FaceLogin so the React state is in sync with localStorage
+    const setUserFromToken = (tok: string, u: User) => {
+        setToken(tok);
+        setUser(u);
+        localStorage.setItem('sb_token', tok);
+        localStorage.setItem('sb_user', JSON.stringify(u));
+    };
+
     const logout = (): boolean => {
-        if (typeof window !== 'undefined' && !window.confirm("Are you sure you want to sign out?")) return false;
-        setUser(null); setToken(null); setCart([]);
-        localStorage.removeItem('sb_token'); localStorage.removeItem('sb_user'); localStorage.removeItem('sb_cart');
+        if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to sign out?')) return false;
+        // ✅ FIX: Clear React state first, then localStorage — both must clear for a clean logout
+        setUser(null);
+        setToken(null);
+        setCart([]);
+        setCartOpen(false);
+        localStorage.removeItem('sb_token');
+        localStorage.removeItem('sb_user');
+        localStorage.removeItem('sb_cart');
         return true;
+    };
+
+    // ✅ NEW: Delete the currently logged-in account from the DB
+    const deleteAccount = async (): Promise<boolean> => {
+        if (!window.confirm('⚠️ Are you absolutely sure? This will permanently delete your account and all associated data. This cannot be undone.')) return false;
+        try {
+            await API.delete('/auth/delete-account');
+            // Clear all state after successful deletion
+            setUser(null); setToken(null); setCart([]); setCartOpen(false);
+            localStorage.removeItem('sb_token');
+            localStorage.removeItem('sb_user');
+            localStorage.removeItem('sb_cart');
+            return true;
+        } catch {
+            return false;
+        }
     };
 
     const addToCart = (item: CartItem) => {
@@ -101,8 +148,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
     const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
 
+    // Don't render children until hydration is done to prevent auth flicker
+    if (!hydrated) return null;
+
     return (
-        <AppContext.Provider value={{ user, token, cart, cartOpen, login, register, logout, addToCart, removeFromCart, updateQty, clearCart, setCartOpen, cartTotal, cartCount, api: API, toast, toasts }}>
+        <AppContext.Provider value={{ user, token, cart, cartOpen, login, register, logout, setUserFromToken, deleteAccount, addToCart, removeFromCart, updateQty, clearCart, setCartOpen, cartTotal, cartCount, api: API, toast, toasts }}>
             {children}
             {/* Toast container */}
             <div className="toast-container">

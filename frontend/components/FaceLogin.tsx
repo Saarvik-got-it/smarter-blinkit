@@ -11,7 +11,7 @@ export default function FaceLogin({ onBack }: { onBack: () => void }) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'loading' | 'ready' | 'scanning' | 'done' | 'error'>('loading');
     const [message, setMessage] = useState('Loading face recognition models...');
-    const { api, login: appLogin, toast } = useApp();
+    const { api, setUserFromToken, toast } = useApp();
     const router = useRouter();
     const streamRef = useRef<MediaStream | null>(null);
 
@@ -19,7 +19,6 @@ export default function FaceLogin({ onBack }: { onBack: () => void }) {
         const loadModels = async () => {
             if (typeof window === 'undefined') return;
 
-            // Dynamically load face-api.js from CDN
             if (!window.faceapi) {
                 await new Promise<void>((res, rej) => {
                     const s = document.createElement('script');
@@ -63,12 +62,23 @@ export default function FaceLogin({ onBack }: { onBack: () => void }) {
 
             const descriptor = Array.from(detection.descriptor as Float32Array);
             const { data } = await api.post('/auth/face-login', { descriptor });
-            localStorage.setItem('sb_token', data.token);
-            localStorage.setItem('sb_user', JSON.stringify(data.user));
+
+            // ✅ FIX: Update React context state with token+user (not just localStorage)
+            // This ensures every component sees the logged-in user immediately
+            setUserFromToken(data.token, data.user);
+
             setStatus('done'); setMessage(`Welcome back, ${data.user.name}! 👋`);
             toast('Face login successful!', 'success');
             streamRef.current?.getTracks().forEach(t => t.stop());
-            setTimeout(() => router.push('/dashboard'), 1000);
+
+            // ✅ FIX: Route based on actual role from API response (not from stale context)
+            setTimeout(() => {
+                if (data.user.role === 'seller') {
+                    router.replace('/dashboard');
+                } else {
+                    router.replace('/shop');
+                }
+            }, 800);
         } catch (err: any) {
             setStatus('ready'); setMessage(err?.response?.data?.message || 'Face not recognized. Try again.');
         }

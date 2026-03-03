@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useApp } from '@/lib/context';
-
 import FaceRegister from '@/components/FaceRegister';
 
 export default function RegisterPage() {
@@ -21,7 +20,7 @@ export default function RegisterPage() {
         setLoading(true);
         try {
             await register(form);
-            toast('Account created! Welcome aboard 🎉', 'success');
+            toast('Account created! Now set up your Face ID 🎉', 'success');
             setShowFace(true);
         } catch (err: any) {
             toast(err?.response?.data?.message || 'Registration failed', 'error');
@@ -31,19 +30,15 @@ export default function RegisterPage() {
     };
 
     const handleSkipFace = () => {
-        if (form.role === 'seller') {
-            router.replace('/dashboard');
-        } else {
-            router.replace('/shop');
-        }
+        router.replace(form.role === 'seller' ? '/dashboard' : '/shop');
     };
 
     return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', background: 'radial-gradient(ellipse at 50% 0%, rgba(0,210,106,0.08) 0%, transparent 60%)' }}>
-            <div style={{ width: '100%', maxWidth: '460px' }}>
-                {/* Header */}
-                <div style={{ textAlign: 'center', marginBottom: '36px' }}>
-                    <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+            <div style={{ width: '100%', maxWidth: '480px' }}>
+                {/* Logo */}
+                <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+                    <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
                         <div className="navbar-logo-icon" style={{ width: 48, height: 48, fontSize: 22 }}>⚡</div>
                         <span style={{ fontSize: '1.5rem', fontWeight: 800 }}>Smarter<span className="text-accent">Blinkit</span></span>
                     </Link>
@@ -51,9 +46,24 @@ export default function RegisterPage() {
                     <p className="text-muted" style={{ fontSize: '0.9rem' }}>Join the smarter marketplace</p>
                 </div>
 
+                {/* Step Indicator */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px', justifyContent: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: !showFace ? 'var(--accent)' : '#00d26a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#000' }}>
+                            {showFace ? '✓' : '1'}
+                        </div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: !showFace ? 'var(--text-primary)' : 'var(--text-muted)' }}>Account Info</span>
+                    </div>
+                    <div style={{ flex: 1, height: 2, background: showFace ? 'var(--accent)' : 'var(--border)', maxWidth: 60 }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: showFace ? 'var(--accent)' : 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: showFace ? '#000' : 'var(--text-muted)' }}>2</div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: showFace ? 'var(--text-primary)' : 'var(--text-muted)' }}>Face ID Setup</span>
+                    </div>
+                </div>
+
                 {/* Role Picker */}
                 {!showFace && (
-                    <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
                         {[{ v: 'buyer', icon: '🛒', label: 'Buyer', sub: 'Shop & explore' }, { v: 'seller', icon: '🏪', label: 'Seller', sub: 'Sell products' }].map(r => (
                             <button key={r.v} onClick={() => setForm(f => ({ ...f, role: r.v }))} type="button"
                                 style={{ flex: 1, padding: '16px', borderRadius: 'var(--radius-lg)', border: `2px solid ${form.role === r.v ? 'var(--accent)' : 'var(--border)'}`, background: form.role === r.v ? 'var(--accent-subtle)' : 'var(--bg-card)', cursor: 'pointer', transition: 'var(--transition)', textAlign: 'center' }}>
@@ -98,8 +108,13 @@ export default function RegisterPage() {
                                     </div>
                                 </>
                             )}
-                            <button type="submit" className="btn btn-primary btn-lg" disabled={loading} style={{ marginTop: '8px' }}>
-                                {loading ? 'Creating...' : 'Create Account'}
+                            {/* Face ID teaser */}
+                            <div style={{ padding: '12px', background: 'var(--accent-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--accent)', fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '1.3rem' }}>🪪</span>
+                                <span>Next step: <strong>Set up Face ID</strong> for instant future logins — takes just 5 seconds.</span>
+                            </div>
+                            <button type="submit" className="btn btn-primary btn-lg" disabled={loading} style={{ marginTop: '4px' }}>
+                                {loading ? 'Creating...' : 'Create Account & Set Up Face ID →'}
                             </button>
                         </form>
                     ) : (

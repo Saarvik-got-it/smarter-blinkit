@@ -41,7 +41,7 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 | **Graph DB** | Neo4j AuraDB (product relationships: SIMILAR_TO, BOUGHT_WITH) |
 | **AI / LLM** | Google Gemini 2.0 Flash (intent parsing, recipe agent) |
 | **Face Recognition** | face-api.js (browser-side, TensorFlow.js models) |
-| **Barcode Scanning** | html5-qrcode (live camera barcode detection) |
+| **Barcode Scanning** | `@zxing/browser` (ZXing — cross-platform, all major barcode formats) |
 | **Payments** | Mock payment flow (Razorpay-ready architecture) |
 | **Real-time** | Socket.io (live storeboard events) |
 | **Maps** | Leaflet.js + OpenStreetMap (Money Map) |
@@ -73,7 +73,7 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 
 ### Bonus / God Mode ✅
 - **Money Map**: Leaflet.js + OpenStreetMap heatmap showing which shops drive the most revenue.
-- **Advanced Seller Dashboard**: Barcode Scanners rewritten with `html5-qrcode` integration for instantaneous accuracy.
+- **Advanced Seller Dashboard**: Barcode scanner powered by `@zxing/browser` (ZXing) — works on Windows/Mac/Linux in Chrome and Edge, supports EAN-13, UPC, Code-128, QR and more.
 - **Secure Developer Admin**: Secure Admin Panel (`/admin/users`) for full site surveillance.
 
 ---
@@ -141,7 +141,7 @@ smarter-blinkit/
 │   │   ├── FaceLogin.tsx       # face-api.js face recognition login
 │   │   ├── FaceRegister.tsx    # face-api.js enrollment
 │   │   ├── BuyerDashboard.tsx
-│   │   └── SellerDashboard.tsx # Inventory + html5-qrcode scanner tab
+│   │   └── SellerDashboard.tsx # Inventory + native BarcodeDetector scanner tab
 │   └── lib/context.tsx         # Global state (auth, cart, toasts)
 │
 ├── backend/                     # Express API
@@ -190,7 +190,7 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 | 1 | Buyer/Seller Auth (JWT) | ✅ Done |
 | 1 | Face ID Login & Registration | ✅ Done |
 | 1 | Intent-based Semantic Search | ✅ Done |
-| 1 | html5-qrcode Inventory Manager | ✅ Done |
+| 1 | Native BarcodeDetector Inventory Scanner | ✅ Done |
 | 1 | Location Checkout & Mock Payments | ✅ Done |
 | 1 | Global Light/Dark Theme & Filters | ✅ Done |
 | 1 | Secure Admin User Dashboard | ✅ Done |
@@ -221,9 +221,12 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 | GET | `/api/shops/nearby?lat=&lng=` | Geo-sorted shops |
 | GET | `/api/shops/storeboard` | Live top sellers |
 | GET | `/api/shops/money-map` | Heatmap data |
-| GET | `/api/admin/users` | Developer secure user listing |
-| POST | `/api/payments/mock-intent` | Start mock payment |
-| POST | `/api/payments/mock-verify` | Verify mock payment |
+| DELETE | `/api/auth/delete-account` | Delete current user account (+ shop if seller) |
+| GET | `/api/auth/me` | Get current logged-in user |
+| POST | `/api/auth/face-register` | Save face descriptor for current user |
+| GET | `/api/shops/my` | Get seller's own shop |
+| POST | `/api/shops` | Create a shop (for sellers without one) |
+| PUT | `/api/shops/my` | Update seller's shop details |
 
 ---
 

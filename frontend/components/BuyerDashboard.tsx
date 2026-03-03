@@ -1,11 +1,15 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useApp } from '@/lib/context';
+import { useRouter } from 'next/navigation';
+import FaceRegister from '@/components/FaceRegister';
 
 export default function BuyerDashboard() {
-    const { user, api } = useApp();
+    const { user, api, deleteAccount, toast } = useApp();
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState<'orders' | 'faceid' | 'account'>('orders');
+    const router = useRouter();
 
     useEffect(() => {
         api.get('/orders/my').then(r => setOrders(r.data.orders || [])).catch(() => { }).finally(() => setLoading(false));
@@ -31,81 +35,120 @@ export default function BuyerDashboard() {
                 <div className="sidebar-section-label">Navigate</div>
                 <a href="/shop" className="sidebar-link"><span className="link-icon">🛒</span> Shop</a>
                 <a href="/ai-agent" className="sidebar-link"><span className="link-icon">🧠</span> AI Agent</a>
-                <a href="/dashboard" className="sidebar-link active"><span className="link-icon">📋</span> My Orders</a>
+                <button onClick={() => setActiveTab('orders')} className={`sidebar-link${activeTab === 'orders' ? ' active' : ''}`} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', color: 'inherit', font: 'inherit' }}>
+                    <span className="link-icon">📋</span> My Orders
+                </button>
+                <button onClick={() => setActiveTab('faceid')} className={`sidebar-link${activeTab === 'faceid' ? ' active' : ''}`} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', color: 'inherit', font: 'inherit' }}>
+                    <span className="link-icon">🪪</span> Face ID
+                </button>
+                <button onClick={() => setActiveTab('account')} className={`sidebar-link${activeTab === 'account' ? ' active' : ''}`} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', color: 'var(--danger, #ff5252)', font: 'inherit' }}>
+                    <span className="link-icon">⚙️</span> Account
+                </button>
             </aside>
 
             {/* Main Content */}
             <main className="dashboard-main">
                 <div style={{ marginBottom: '32px' }}>
                     <h1 style={{ fontSize: '1.75rem', marginBottom: '6px' }}>Welcome back, {user?.name.split(' ')[0]} 👋</h1>
-                    <p className="text-muted">Here's your shopping overview</p>
+                    <p className="text-muted">{activeTab === 'faceid' ? 'Manage your Face ID' : "Here's your shopping overview"}</p>
                 </div>
 
-                {/* Stats */}
-                <div className="stats-grid" style={{ marginBottom: '32px' }}>
-                    <div className="stat-card">
-                        <div className="stat-icon green">🛒</div>
-                        <div className="stat-label">Total Orders</div>
-                        <div className="stat-value">{orders.length}</div>
+                {activeTab === 'faceid' ? (
+                    <div className="card" style={{ maxWidth: '500px', padding: '32px' }}>
+                        <h3 style={{ marginBottom: '8px' }}>🪪 Face ID Enrollment</h3>
+                        <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '20px' }}>
+                            Set up or update your Face ID to enable instant camera-based login. Your face data is stored as an encrypted mathematical hash and never leaves the system.
+                        </p>
+                        <FaceRegister userRole="buyer" onSkip={() => setActiveTab('orders')} />
                     </div>
-                    <div className="stat-card">
-                        <div className="stat-icon blue">✅</div>
-                        <div className="stat-label">Delivered</div>
-                        <div className="stat-value">{orders.filter(o => o.status === 'delivered').length}</div>
+                ) : activeTab === 'account' ? (
+                    <div className="card" style={{ maxWidth: '500px', padding: '32px', border: '1px solid var(--danger, #ff5252)' }}>
+                        <h3 style={{ marginBottom: '8px', color: 'var(--danger, #ff5252)' }}>⚠️ Danger Zone</h3>
+                        <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '20px' }}>
+                            Permanently delete your account and all associated data including order history. This action <strong>cannot be undone</strong>.
+                        </p>
+                        <button
+                            className="btn"
+                            style={{ background: 'var(--danger, #ff5252)', color: '#fff', border: 'none' }}
+                            onClick={async () => {
+                                const deleted = await deleteAccount();
+                                if (deleted) { toast('Account deleted', 'success'); router.replace('/'); }
+                                else toast('Account deletion failed', 'error');
+                            }}
+                        >
+                            🗑️ Delete My Account
+                        </button>
                     </div>
-                    <div className="stat-card">
-                        <div className="stat-icon orange">💰</div>
-                        <div className="stat-label">Total Spent</div>
-                        <div className="stat-value">₹{orders.reduce((s, o) => s + o.totalAmount, 0).toFixed(0)}</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-icon green">⏳</div>
-                        <div className="stat-label">Active Orders</div>
-                        <div className="stat-value">{orders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length}</div>
-                    </div>
-                </div>
-
-                {/* Quick Actions */}
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '32px', flexWrap: 'wrap' }}>
-                    <a href="/shop" className="btn btn-primary"><span>🛒</span> Browse Shop</a>
-                    <a href="/ai-agent" className="btn btn-secondary"><span>🧠</span> AI Recipe Agent</a>
-                </div>
-
-                {/* Orders */}
-                <div className="card" style={{ padding: '0' }}>
-                    <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <h3>My Orders</h3>
-                        <span className="badge badge-blue">{orders.length} total</span>
-                    </div>
-                    {loading ? (
-                        <div style={{ padding: '48px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>
-                    ) : orders.length === 0 ? (
-                        <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                            <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🛍</div>
-                            <p>No orders yet. Start shopping!</p>
-                            <a href="/shop" className="btn btn-primary btn-sm" style={{ marginTop: '16px' }}>Browse Products</a>
+                ) : (
+                    <>
+                        {/* Stats */}
+                        <div className="stats-grid" style={{ marginBottom: '32px' }}>
+                            <div className="stat-card">
+                                <div className="stat-icon green">🛒</div>
+                                <div className="stat-label">Total Orders</div>
+                                <div className="stat-value">{orders.length}</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-icon blue">✅</div>
+                                <div className="stat-label">Delivered</div>
+                                <div className="stat-value">{orders.filter(o => o.status === 'delivered').length}</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-icon orange">💰</div>
+                                <div className="stat-label">Total Spent</div>
+                                <div className="stat-value">₹{orders.reduce((s, o) => s + o.totalAmount, 0).toFixed(0)}</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-icon green">⏳</div>
+                                <div className="stat-label">Active Orders</div>
+                                <div className="stat-value">{orders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length}</div>
+                            </div>
                         </div>
-                    ) : (
-                        <div className="table-wrap">
-                            <table className="table">
-                                <thead>
-                                    <tr><th>Order ID</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th></tr>
-                                </thead>
-                                <tbody>
-                                    {orders.map(o => (
-                                        <tr key={o._id}>
-                                            <td><span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-muted)' }}>#{o._id.slice(-8)}</span></td>
-                                            <td><span style={{ fontWeight: 500 }}>{o.items?.length} items</span></td>
-                                            <td><span style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{o.totalAmount?.toFixed(2)}</span></td>
-                                            <td><span className={`badge badge-${statusColor[o.status] || 'blue'}`}>{o.status}</span></td>
-                                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+
+                        {/* Quick Actions */}
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '32px', flexWrap: 'wrap' }}>
+                            <a href="/shop" className="btn btn-primary"><span>🛒</span> Browse Shop</a>
+                            <a href="/ai-agent" className="btn btn-secondary"><span>🧠</span> AI Recipe Agent</a>
+                            <button onClick={() => setActiveTab('faceid')} className="btn btn-ghost"><span>🪪</span> Setup Face ID</button>
                         </div>
-                    )}
-                </div>
+
+                        {/* Orders */}
+                        <div className="card" style={{ padding: '0' }}>
+                            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <h3>My Orders</h3>
+                                <span className="badge badge-blue">{orders.length} total</span>
+                            </div>
+                            {loading ? (
+                                <div style={{ padding: '48px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>
+                            ) : orders.length === 0 ? (
+                                <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                    <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🛍</div>
+                                    <p>No orders yet. Start shopping!</p>
+                                    <a href="/shop" className="btn btn-primary btn-sm" style={{ marginTop: '16px' }}>Browse Products</a>
+                                </div>
+                            ) : (
+                                <div className="table-wrap">
+                                    <table className="table">
+                                        <thead>
+                                            <tr><th>Order ID</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {orders.map(o => (
+                                                <tr key={o._id}>
+                                                    <td><span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-muted)' }}>#{o._id.slice(-8)}</span></td>
+                                                    <td><span style={{ fontWeight: 500 }}>{o.items?.length} items</span></td>
+                                                    <td><span style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{o.totalAmount?.toFixed(2)}</span></td>
+                                                    <td><span className={`badge badge-${statusColor[o.status] || 'blue'}`}>{o.status}</span></td>
+                                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
             </main>
         </div>
     );

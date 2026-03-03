@@ -112,9 +112,21 @@ router.get('/me', protect, async (req, res) => {
     res.json({ success: true, user: req.user });
 });
 
-function euclideanDistance(a, b) {
-    if (a.length !== b.length) return Infinity;
-    return Math.sqrt(a.reduce((sum, val, i) => sum + (val - b[i]) ** 2, 0));
-}
+// DELETE /api/auth/delete-account
+router.delete('/delete-account', protect, async (req, res) => {
+    try {
+        const user = req.user;
+        // If seller, remove their shop too
+        if (user.role === 'seller') {
+            await Shop.deleteMany({ ownerId: user._id });
+        }
+        await User.findByIdAndDelete(user._id);
+        res.json({ success: true, message: 'Account deleted successfully' });
+    } catch (err) {
+        console.error('Delete account error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
 
 module.exports = router;
+
