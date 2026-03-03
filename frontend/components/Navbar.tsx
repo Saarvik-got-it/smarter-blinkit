@@ -3,12 +3,23 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useApp } from '@/lib/context';
 
+import { useEffect } from 'react';
+
 export default function Navbar() {
     const { user, logout, cartCount, setCartOpen } = useApp();
     const pathname = usePathname();
     const router = useRouter();
 
-    const handleLogout = () => { logout(); router.push('/'); };
+    useEffect(() => {
+        const savedTheme = localStorage.getItem('sb_theme');
+        if (savedTheme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    }, []);
+
+    const handleLogout = () => {
+        if (logout()) {
+            router.push('/');
+        }
+    };
 
     return (
         <nav className="navbar">
@@ -28,7 +39,12 @@ export default function Navbar() {
                                     <Link href="/ai-agent" className={`navbar-link ${pathname.startsWith('/ai-agent') ? 'active' : ''}`}>
                                         <span className="ai-badge" style={{ fontSize: '0.65rem' }}>AI</span> Agent
                                     </Link>
-                                    <Link href="/storeboard" className={`navbar-link ${pathname.startsWith('/storeboard') ? 'active' : ''}`}>📡 Live</Link>
+
+                                    {/* Prominent Storeboard Link */}
+                                    <Link href="/storeboard" className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', border: 'none', boxShadow: '0 0 10px rgba(255,82,82,0.4)', fontWeight: 800 }}>
+                                        <span style={{ animation: 'pulse 1.5s infinite' }}>🔴</span> LIVE Storeboard
+                                    </Link>
+
                                     <Link href="/money-map" className={`navbar-link ${pathname.startsWith('/money-map') ? 'active' : ''}`}>🗺 Map</Link>
                                 </>
                             )}
@@ -41,6 +57,16 @@ export default function Navbar() {
                             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                 {user.name.split(' ')[0]} · <span className="badge badge-green" style={{ fontSize: '0.65rem', padding: '2px 7px' }}>{user.role}</span>
                             </span>
+
+                            {/* Theme Toggle Button */}
+                            <button className="btn btn-ghost btn-sm" onClick={() => {
+                                const newTheme = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+                                document.documentElement.setAttribute('data-theme', newTheme);
+                                localStorage.setItem('sb_theme', newTheme);
+                            }} style={{ fontSize: '1.2rem', padding: '4px' }} title="Toggle Theme">
+                                🌗
+                            </button>
+
                             <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
                         </>
                     ) : (

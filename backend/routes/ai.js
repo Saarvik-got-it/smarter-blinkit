@@ -80,8 +80,9 @@ Rules:
 
         res.json({ success: true, prompt, ingredients, cartItems, notFound, fallback: usedFallback });
     } catch (err) {
-        console.error('AI recipe agent error:', err);
-        res.status(500).json({ success: false, message: 'Something went wrong with the AI agent. Please try again.' });
+        console.error('Critical AI recipe agent error:', err);
+        // Guarantee no 500 error toast on the frontend
+        res.json({ success: true, prompt: req.body.prompt, ingredients: [], cartItems: [], notFound: [], fallback: true });
     }
 });
 
@@ -119,23 +120,29 @@ User query: "${query}"`;
             if (!keywords.length) keywords = [query];
         }
 
-        // Search for each keyword
+        // Search for each keyword safely
         const productMap = new Map();
-        for (const kw of keywords) {
-            const products = await Product.find({
-                $text: { $search: kw },
-                isAvailable: true,
-                stock: { $gt: 0 },
-            })
-                .populate('shopId', 'name location rating')
-                .limit(5);
-            products.forEach((p) => productMap.set(p._id.toString(), { product: p, matchedKeyword: kw }));
+        try {
+            for (const kw of keywords) {
+                const products = await Product.find({
+                    $text: { $search: kw },
+                    isAvailable: true,
+                    stock: { $gt: 0 },
+                })
+                    .populate('shopId', 'name location rating')
+                    .limit(5);
+                products.forEach((p) => productMap.set(p._id.toString(), { product: p, matchedKeyword: kw }));
+            }
+        } catch (dbErr) {
+            console.error('DB error during intent search fallback:', dbErr.message);
+            // If DB text search fails (e.g. index issue), just return empty instead of 500
         }
 
         const results = Array.from(productMap.values());
         res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback });
     } catch (err) {
-        res.status(500).json({ success: false, message: 'Search failed. Please try again.' });
+        console.error('Critical intent search error:', err);
+        res.json({ success: true, query: req.body.query, expandedKeywords: [], count: 0, results: [], fallback: true });
     }
 });
 

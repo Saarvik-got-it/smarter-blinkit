@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '@/lib/context';
 
-declare global { interface Window { Quagga: any; } }
+declare global { interface Window { Quagga: any; Html5QrcodeScanner: any; } }
 
 export default function SellerDashboard() {
     const { user, api, toast } = useApp();
@@ -38,35 +38,42 @@ export default function SellerDashboard() {
         } catch (err: any) { toast(err?.response?.data?.message || 'Failed to add product', 'error'); }
     };
 
+    const scannerInstanceRef = useRef<any>(null);
+
     const startBarcodeScanner = async () => {
         if (typeof window === 'undefined') return;
-        if (!window.Quagga) {
+        if (!window.Html5QrcodeScanner) {
             await new Promise<void>((res, rej) => {
                 const s = document.createElement('script');
-                s.src = 'https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js';
+                s.src = 'https://unpkg.com/html5-qrcode';
                 s.onload = () => res(); s.onerror = () => rej();
                 document.head.appendChild(s);
             });
         }
         setScanning(true);
-        window.Quagga.init({
-            inputStream: { type: 'LiveStream', target: scannerRef.current, constraints: { width: 320, height: 240, facingMode: 'environment' } },
-            decoder: { readers: ['ean_reader', 'ean_8_reader', 'code_128_reader', 'upc_reader'] },
-        }, (err: any) => {
-            if (err) { setScanning(false); toast('Camera error: ' + err.message, 'error'); return; }
-            window.Quagga.start();
-        });
-        window.Quagga.onDetected((data: any) => {
-            const code = data.codeResult.code;
-            window.Quagga.stop(); setScanning(false);
-            setNewProduct(p => ({ ...p, barcode: code }));
+        // Clean up previous instance if exists
+        if (scannerInstanceRef.current) {
+            scannerInstanceRef.current.clear().catch(() => { });
+        }
+
+        const scanner = new window.Html5QrcodeScanner("barcode-reader", { fps: 10, qrbox: { width: 250, height: 150 } }, false);
+        scannerInstanceRef.current = scanner;
+
+        scanner.render((decodedText: string) => {
+            scanner.clear().catch(() => { });
+            setScanning(false);
+            setNewProduct(p => ({ ...p, barcode: decodedText }));
             setTab('inventory');
-            toast(`Barcode scanned: ${code} ✅`, 'success');
+            toast(`Barcode scanned: ${decodedText} ✅`, 'success');
+        }, (err: any) => {
+            // Ignore frequent frame parsing errors
         });
     };
 
     const stopScanner = () => {
-        if (window.Quagga) window.Quagga.stop();
+        if (scannerInstanceRef.current) {
+            scannerInstanceRef.current.clear().catch(() => { });
+        }
         setScanning(false);
     };
 
@@ -233,7 +240,7 @@ export default function SellerDashboard() {
                                     <h3 style={{ marginBottom: '16px' }}>Scan Product Barcode</h3>
                                     <p className="text-muted" style={{ marginBottom: '20px', fontSize: '0.875rem' }}>Point your camera at a product barcode to automatically fill in the product code. Then add inventory details.</p>
 
-                                    <div ref={scannerRef} style={{ width: '100%', height: 200, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                                    <div id="barcode-reader" style={{ width: '100%', minHeight: 200, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                                         {!scanning && <span style={{ fontSize: '3rem' }}>🔲</span>}
                                     </div>
 

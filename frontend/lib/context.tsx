@@ -16,9 +16,9 @@ interface CartItem { productId: string; name: string; price: number; quantity: n
 interface AppContextType {
     user: User | null; token: string | null;
     cart: CartItem[]; cartOpen: boolean;
-    login: (email: string, password: string) => Promise<void>;
-    register: (data: object) => Promise<void>;
-    logout: () => void;
+    login: (email: string, password: string) => Promise<User>;
+    register: (data: object) => Promise<User>;
+    logout: () => boolean;
     addToCart: (item: CartItem) => void;
     removeFromCart: (productId: string) => void;
     updateQty: (productId: string, delta: number) => void;
@@ -62,6 +62,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setToken(data.token); setUser(data.user);
         localStorage.setItem('sb_token', data.token);
         localStorage.setItem('sb_user', JSON.stringify(data.user));
+        return data.user;
     };
 
     const register = async (formData: object) => {
@@ -69,11 +70,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setToken(data.token); setUser(data.user);
         localStorage.setItem('sb_token', data.token);
         localStorage.setItem('sb_user', JSON.stringify(data.user));
+        return data.user;
     };
 
-    const logout = () => {
+    const logout = (): boolean => {
+        if (typeof window !== 'undefined' && !window.confirm("Are you sure you want to sign out?")) return false;
         setUser(null); setToken(null); setCart([]);
         localStorage.removeItem('sb_token'); localStorage.removeItem('sb_user'); localStorage.removeItem('sb_cart');
+        return true;
     };
 
     const addToCart = (item: CartItem) => {

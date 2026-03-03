@@ -16,9 +16,15 @@ export default function LoginPage() {
         e.preventDefault();
         setLoading(true);
         try {
-            await login(form.email, form.password);
+            const loggedInUser = await login(form.email, form.password);
             toast('Welcome back! 👋', 'success');
-            router.push('/dashboard');
+            // Check if there is a `window` object to prevent hydration mismatches, though we are in a client component
+            // Using replace prevents back-button logout loops
+            if (loggedInUser?.role === 'seller') {
+                router.replace('/dashboard');
+            } else {
+                router.replace('/shop');
+            }
         } catch (err: any) {
             toast(err?.response?.data?.message || 'Login failed', 'error');
         } finally {

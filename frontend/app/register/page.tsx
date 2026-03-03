@@ -4,11 +4,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useApp } from '@/lib/context';
 
+import FaceRegister from '@/components/FaceRegister';
+
 export default function RegisterPage() {
     const { register, toast } = useApp();
     const router = useRouter();
     const [form, setForm] = useState({ name: '', email: '', password: '', role: 'buyer', phone: '', shopName: '', shopAddress: '' });
     const [loading, setLoading] = useState(false);
+    const [showFace, setShowFace] = useState(false);
 
     const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
         setForm(f => ({ ...f, [field]: e.target.value }));
@@ -19,11 +22,19 @@ export default function RegisterPage() {
         try {
             await register(form);
             toast('Account created! Welcome aboard 🎉', 'success');
-            router.push('/dashboard');
+            setShowFace(true);
         } catch (err: any) {
             toast(err?.response?.data?.message || 'Registration failed', 'error');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSkipFace = () => {
+        if (form.role === 'seller') {
+            router.replace('/dashboard');
+        } else {
+            router.replace('/shop');
         }
     };
 
@@ -41,59 +52,67 @@ export default function RegisterPage() {
                 </div>
 
                 {/* Role Picker */}
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-                    {[{ v: 'buyer', icon: '🛒', label: 'Buyer', sub: 'Shop & explore' }, { v: 'seller', icon: '🏪', label: 'Seller', sub: 'Sell products' }].map(r => (
-                        <button key={r.v} onClick={() => setForm(f => ({ ...f, role: r.v }))} type="button"
-                            style={{ flex: 1, padding: '16px', borderRadius: 'var(--radius-lg)', border: `2px solid ${form.role === r.v ? 'var(--accent)' : 'var(--border)'}`, background: form.role === r.v ? 'var(--accent-subtle)' : 'var(--bg-card)', cursor: 'pointer', transition: 'var(--transition)', textAlign: 'center' }}>
-                            <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>{r.icon}</div>
-                            <div style={{ fontWeight: 700, color: form.role === r.v ? 'var(--accent)' : 'var(--text-primary)' }}>{r.label}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.sub}</div>
-                        </button>
-                    ))}
-                </div>
+                {!showFace && (
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+                        {[{ v: 'buyer', icon: '🛒', label: 'Buyer', sub: 'Shop & explore' }, { v: 'seller', icon: '🏪', label: 'Seller', sub: 'Sell products' }].map(r => (
+                            <button key={r.v} onClick={() => setForm(f => ({ ...f, role: r.v }))} type="button"
+                                style={{ flex: 1, padding: '16px', borderRadius: 'var(--radius-lg)', border: `2px solid ${form.role === r.v ? 'var(--accent)' : 'var(--border)'}`, background: form.role === r.v ? 'var(--accent-subtle)' : 'var(--bg-card)', cursor: 'pointer', transition: 'var(--transition)', textAlign: 'center' }}>
+                                <div style={{ fontSize: '1.8rem', marginBottom: '6px' }}>{r.icon}</div>
+                                <div style={{ fontWeight: 700, color: form.role === r.v ? 'var(--accent)' : 'var(--text-primary)' }}>{r.label}</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.sub}</div>
+                            </button>
+                        ))}
+                    </div>
+                )}
 
                 <div className="card" style={{ padding: '32px' }}>
-                    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <div className="form-group">
-                                <label className="form-label">Full Name</label>
-                                <input className="form-input" placeholder="John Doe" value={form.name} onChange={set('name')} required />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Phone</label>
-                                <input className="form-input" placeholder="+91 98765..." value={form.phone} onChange={set('phone')} />
-                            </div>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Email</label>
-                            <input className="form-input" type="email" placeholder="you@example.com" value={form.email} onChange={set('email')} required />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Password</label>
-                            <input className="form-input" type="password" placeholder="Min 6 characters" value={form.password} onChange={set('password')} required minLength={6} />
-                        </div>
-                        {form.role === 'seller' && (
-                            <>
+                    {!showFace ? (
+                        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                 <div className="form-group">
-                                    <label className="form-label">Shop Name</label>
-                                    <input className="form-input" placeholder="My Awesome Store" value={form.shopName} onChange={set('shopName')} required />
+                                    <label className="form-label">Full Name</label>
+                                    <input className="form-input" placeholder="John Doe" value={form.name} onChange={set('name')} required />
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Shop Address</label>
-                                    <input className="form-input" placeholder="123 Main St, Bengaluru" value={form.shopAddress} onChange={set('shopAddress')} />
+                                    <label className="form-label">Phone</label>
+                                    <input className="form-input" placeholder="+91 98765..." value={form.phone} onChange={set('phone')} />
                                 </div>
-                            </>
-                        )}
-                        <button type="submit" className="btn btn-primary btn-lg w-full" disabled={loading}>
-                            {loading ? '⏳ Creating...' : `Create ${form.role === 'buyer' ? 'Buyer' : 'Seller'} Account →`}
-                        </button>
-                    </form>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Email</label>
+                                <input className="form-input" type="email" placeholder="you@example.com" value={form.email} onChange={set('email')} required />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Password</label>
+                                <input className="form-input" type="password" placeholder="Min 6 characters" value={form.password} onChange={set('password')} required minLength={6} />
+                            </div>
+                            {form.role === 'seller' && (
+                                <>
+                                    <div className="form-group">
+                                        <label className="form-label">Shop Name</label>
+                                        <input className="form-input" placeholder="My Awesome Store" value={form.shopName} onChange={set('shopName')} required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Shop Address</label>
+                                        <input className="form-input" placeholder="123 Main St, Bengaluru" value={form.shopAddress} onChange={set('shopAddress')} />
+                                    </div>
+                                </>
+                            )}
+                            <button type="submit" className="btn btn-primary btn-lg" disabled={loading} style={{ marginTop: '8px' }}>
+                                {loading ? 'Creating...' : 'Create Account'}
+                            </button>
+                        </form>
+                    ) : (
+                        <FaceRegister userRole={form.role} onSkip={handleSkipFace} />
+                    )}
                 </div>
 
-                <p style={{ textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                    Already have an account?{' '}
-                    <Link href="/login" style={{ color: 'var(--accent)', fontWeight: 600 }}>Sign in</Link>
-                </p>
+                {!showFace && (
+                    <p style={{ textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                        Already have an account?{' '}
+                        <Link href="/login" style={{ color: 'var(--accent)', fontWeight: 600 }}>Sign in</Link>
+                    </p>
+                )}
             </div>
         </div>
     );

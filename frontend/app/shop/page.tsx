@@ -11,30 +11,47 @@ export default function ShopPage() {
     const [products, setProducts] = useState<any[]>([]);
     const [query, setQuery] = useState('');
     const [category, setCategory] = useState('');
+    const emoji: Record<string, string> = { Groceries: '🌾', Dairy: '🥛', Fresh: '🥬', Pharmacy: '💊', Beverages: '🥤', Snacks: '🍿', Electronics: '📱' };
+    const getCategoryEmoji = (cat: string) => emoji[cat] || '📦';
+    const categoriesList = Object.keys(emoji);
+
     const [loading, setLoading] = useState(false);
     const [searchMode, setSearchMode] = useState<'text' | 'intent'>('text');
     const [expandedKeywords, setExpandedKeywords] = useState<string[]>([]);
+    const [availableShops, setAvailableShops] = useState<any[]>([]);
+    const [selectedShop, setSelectedShop] = useState('');
 
-    const doSearch = async (q: string, cat: string) => {
+    useEffect(() => {
+        // Fetch nearby shops for the filter dropdown
+        api.get('/shops/nearby?lat=0&lng=0&radius=100000').then((r) => setAvailableShops(r.data.shops)).catch(() => { });
+    }, [api]);
+
+    const doSearch = async (q: string, cat: string, shop: string) => {
         setLoading(true); setExpandedKeywords([]);
         try {
             if (searchMode === 'intent' && q) {
                 const { data } = await api.post('/ai/intent-search', { query: q });
-                setProducts(data.results?.map((r: any) => r.product) || []);
+                let intentProducts = data.results?.map((r: any) => r.product) || [];
+                if (shop) intentProducts = intentProducts.filter((p: any) => p.shopId?._id === shop);
+                if (cat) intentProducts = intentProducts.filter((p: any) => p.category === cat);
+                setProducts(intentProducts);
                 setExpandedKeywords(data.expandedKeywords || []);
             } else {
-                const { data } = await api.get('/products/search', { params: { q, category: cat, limit: 40 } });
+                const { data } = await api.get('/products/search', { params: { q, category: cat, shopId: shop, limit: 40 } });
                 setProducts(data.products || []);
             }
         } catch { } finally { setLoading(false); }
     };
 
-    useEffect(() => { doSearch('', ''); }, []);
+    // Live sync search: Trigger doSearch whenever dependencies change, with a 300ms debounce
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            doSearch(query, category, selectedShop);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [query, category, selectedShop, searchMode]);
 
-    const handleSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(query, category); };
-
-    const emoji: Record<string, string> = { Groceries: '🌾', Dairy: '🥛', Fresh: '🥬', Pharmacy: '💊', Beverages: '🥤', Snacks: '🍿', Electronics: '📱' };
-    const getCategoryEmoji = (cat: string) => emoji[cat] || '📦';
+    const handleSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(query, category, selectedShop); };
 
     return (
         <>
@@ -55,19 +72,35 @@ export default function ShopPage() {
                             <button onClick={() => setSearchMode('intent')} className={`btn btn-sm ${searchMode === 'intent' ? 'btn-primary' : 'btn-secondary'}`}>🧠 AI Intent</button>
                         </div>
 
-                        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                            <div className="search-bar" style={{ flex: '1', minWidth: '260px' }}>
+                        <form onSubmit={handleSearch} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div className="search-bar" style={{ width: '100%' }}>
                                 <span style={{ fontSize: '1rem' }}>{searchMode === 'intent' ? '🧠' : '🔍'}</span>
                                 <input
                                     value={query}
                                     onChange={e => setQuery(e.target.value)}
-                                    placeholder={searchMode === 'intent' ? 'e.g. "I have a cold" or "movie night snacks"' : 'Search products...'}
+                                    placeholder={searchMode === 'intent' ? 'e.g. "I have a cold" or "movie night snacks"' : 'Search products... (auto updates)'}
                                 />
                                 <button type="submit" className="search-btn">Search</button>
                             </div>
-                            {searchMode === 'text' && (
-                                <input className="form-input" style={{ width: '160px' }} placeholder="Category..." value={category} onChange={e => setCategory(e.target.value)} />
-                            )}
+
+                            {/* Filter Dialog / Row */}
+                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, marginRight: '8px' }}>Filters:</span>
+
+                                <select className="form-select" style={{ minWidth: '180px' }} value={category} onChange={e => setCategory(e.target.value)}>
+                                    <option value="">All Categories</option>
+                                    {categoriesList.map(cat => <option key={cat} value={cat}>{getCategoryEmoji(cat)} {cat}</option>)}
+                                </select>
+
+                                <select className="form-select" style={{ minWidth: '180px' }} value={selectedShop} onChange={e => setSelectedShop(e.target.value)}>
+                                    <option value="">All Shops Nearby</option>
+                                    {availableShops.map(shop => <option key={shop._id} value={shop._id}>🏪 {shop.name}</option>)}
+                                </select>
+
+                                {(category || selectedShop) && (
+                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setCategory(''); setSelectedShop(''); }}>Clear</button>
+                                )}
+                            </div>
                         </form>
 
                         {/* AI expanded keywords */}
