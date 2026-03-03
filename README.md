@@ -2,7 +2,9 @@
 
 > An AI-powered marketplace connecting buyers and local sellers. Instead of item-by-item searching, simply describe what you need — the AI fills your cart automatically.
 
-**Status: � All 4 Stages Complete — Foundation, Automator, Orchestrator, God Mode (Corrected readme)**
+**Status:  All 4 Stages Complete — Foundation, Automator, Orchestrator, God Mode**
+
+**NOTE:** The platform is still under production and some of the features are not working as expected. Also the database is not fully populated with the products and shops. There are some issues with the Gemnini API which will be resolved soon.
 
 ---
 

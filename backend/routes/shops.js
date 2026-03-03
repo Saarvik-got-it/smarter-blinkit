@@ -95,7 +95,20 @@ router.get('/my', protect, requireRole('seller'), async (req, res) => {
 // PUT /api/shops/my — update seller's shop
 router.put('/my', protect, requireRole('seller'), async (req, res) => {
     try {
-        const shop = await Shop.findOneAndUpdate({ ownerId: req.user._id }, req.body, { new: true });
+        const { name, phone } = req.body;
+        const address = req.body['location.address'] ?? req.body.address;
+
+        const updateFields = {};
+        if (name) updateFields.name = name;
+        if (phone !== undefined) updateFields.phone = phone;
+        if (address !== undefined) updateFields['location.address'] = address;
+
+        const shop = await Shop.findOneAndUpdate(
+            { ownerId: req.user._id },
+            { $set: updateFields },
+            { new: true, runValidators: false }
+        );
+        if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
         res.json({ success: true, shop });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });

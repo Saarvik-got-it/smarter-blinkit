@@ -9,15 +9,17 @@ export default function SellerDashboard() {
     const [shop, setShop] = useState<any>(null);
     const [products, setProducts] = useState<any[]>([]);
     const [orders, setOrders] = useState<any[]>([]);
-    const [tab, setTab] = useState<'overview' | 'inventory' | 'orders' | 'barcode'>('overview');
+    const [tab, setTab] = useState<'overview' | 'inventory' | 'orders' | 'barcode' | 'settings'>('overview');
     const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '' });
+    const [shopEdit, setShopEdit] = useState({ name: '', address: '', phone: '' });
+    const [savingShop, setSavingShop] = useState(false);
     const [loading, setLoading] = useState(true);
     const [scanning, setScanning] = useState(false);
     const scannerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         Promise.all([
-            api.get('/shops/my').then(r => setShop(r.data.shop)),
+            api.get('/shops/my').then(r => { setShop(r.data.shop); setShopEdit({ name: r.data.shop.name, address: r.data.shop.location?.address || '', phone: r.data.shop.phone || '' }); }),
             api.get('/orders/shop').then(r => setOrders(r.data.orders || [])),
         ]).catch(() => { }).finally(() => setLoading(false));
     }, [api]);
@@ -68,6 +70,21 @@ export default function SellerDashboard() {
         setScanning(false);
     };
 
+    const handleSaveShop = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSavingShop(true);
+        try {
+            const { data } = await api.put('/shops/my', {
+                name: shopEdit.name,
+                phone: shopEdit.phone,
+                'location.address': shopEdit.address,
+            });
+            setShop(data.shop);
+            toast('Shop updated! ✅', 'success');
+        } catch (err: any) { toast(err?.response?.data?.message || 'Update failed', 'error'); }
+        finally { setSavingShop(false); }
+    };
+
     const totalRevenue = orders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0);
 
     const sidebarLinks = [
@@ -75,6 +92,7 @@ export default function SellerDashboard() {
         { id: 'inventory', icon: '📦', label: 'Inventory' },
         { id: 'orders', icon: '📋', label: 'Orders' },
         { id: 'barcode', icon: '🔲', label: 'Barcode Scanner' },
+        { id: 'settings', icon: '⚙️', label: 'Shop Settings' },
     ];
 
     return (
@@ -227,6 +245,31 @@ export default function SellerDashboard() {
                                         )}
                                         <button className="btn btn-secondary" onClick={() => setTab('inventory')}>← Back to Inventory</button>
                                     </div>
+                                </div>
+                            </div>
+                        )}
+                        {tab === 'settings' && (
+                            <div>
+                                <h2 style={{ marginBottom: '24px' }}>⚙️ Shop Settings</h2>
+                                <div className="card" style={{ maxWidth: '520px' }}>
+                                    <h3 style={{ marginBottom: '20px' }}>Edit Shop Profile</h3>
+                                    <form onSubmit={handleSaveShop} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                        <div className="form-group">
+                                            <label className="form-label">Shop Name</label>
+                                            <input className="form-input" value={shopEdit.name} onChange={e => setShopEdit(s => ({ ...s, name: e.target.value }))} placeholder="e.g. Ramesh General Store" required />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Shop Address</label>
+                                            <input className="form-input" value={shopEdit.address} onChange={e => setShopEdit(s => ({ ...s, address: e.target.value }))} placeholder="123 Main Street, Bengaluru" />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Phone</label>
+                                            <input className="form-input" value={shopEdit.phone} onChange={e => setShopEdit(s => ({ ...s, phone: e.target.value }))} placeholder="+91 98765 43210" />
+                                        </div>
+                                        <button type="submit" className="btn btn-primary" disabled={savingShop}>
+                                            {savingShop ? '⏳ Saving...' : '💾 Save Changes'}
+                                        </button>
+                                    </form>
                                 </div>
                             </div>
                         )}

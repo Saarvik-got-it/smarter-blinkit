@@ -7,7 +7,7 @@ import { useApp } from '@/lib/context';
 export default function RegisterPage() {
     const { register, toast } = useApp();
     const router = useRouter();
-    const [form, setForm] = useState({ name: '', email: '', password: '', role: 'buyer', phone: '', shopName: '' });
+    const [form, setForm] = useState({ name: '', email: '', password: '', role: 'buyer', phone: '', shopName: '', shopAddress: '' });
     const [loading, setLoading] = useState(false);
 
     const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -73,10 +73,16 @@ export default function RegisterPage() {
                             <input className="form-input" type="password" placeholder="Min 6 characters" value={form.password} onChange={set('password')} required minLength={6} />
                         </div>
                         {form.role === 'seller' && (
-                            <div className="form-group">
-                                <label className="form-label">Shop Name</label>
-                                <input className="form-input" placeholder="My Awesome Store" value={form.shopName} onChange={set('shopName')} required />
-                            </div>
+                            <>
+                                <div className="form-group">
+                                    <label className="form-label">Shop Name</label>
+                                    <input className="form-input" placeholder="My Awesome Store" value={form.shopName} onChange={set('shopName')} required />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Shop Address</label>
+                                    <input className="form-input" placeholder="123 Main St, Bengaluru" value={form.shopAddress} onChange={set('shopAddress')} />
+                                </div>
+                            </>
                         )}
                         <button type="submit" className="btn btn-primary btn-lg w-full" disabled={loading}>
                             {loading ? '⏳ Creating...' : `Create ${form.role === 'buyer' ? 'Buyer' : 'Seller'} Account →`}
