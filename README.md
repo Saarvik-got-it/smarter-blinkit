@@ -2,7 +2,7 @@
 
 > An AI-powered marketplace connecting buyers and local sellers. Instead of item-by-item searching, simply describe what you need — the AI fills your cart automatically.
 
-**Status: 🟡 Stage 1 & 2 Complete — Stage 3 (Orchestrator) & Bonus in Progress**
+**Status: � All 4 Stages Complete — Foundation, Automator, Orchestrator, God Mode**
 
 ---
 
@@ -18,7 +18,7 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 | **Backend** | Node.js + Express REST API |
 | **Primary DB** | MongoDB Atlas (users, products, orders, shops) |
 | **Graph DB** | Neo4j AuraDB (product relationships: SIMILAR_TO, BOUGHT_WITH) |
-| **AI / LLM** | Google Gemini 1.5 Flash (intent parsing, recipe agent) |
+| **AI / LLM** | Google Gemini 2.0 Flash (intent parsing, recipe agent) |
 | **Face Recognition** | face-api.js (browser-side, TensorFlow.js models) |
 | **Barcode Scanning** | QuaggaJS (live camera barcode detection) |
 | **Payments** | Mock payment flow (Razorpay-ready architecture) |
@@ -41,13 +41,14 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 - **Neo4j Graph Suggestions**: Products stored as graph nodes. When you buy pasta, the system records `BOUGHT_WITH` cheese → next user sees suggestion
 - **Intent-Aware Search**: Gemini expands queries semantically before searching the catalog
 
-### Stage 3 — Orchestrator 🔄
+### Stage 3 — Orchestrator ✅
 - **Smart Cart Splitting**: Multi-shop orders auto-split per shop (Shop A: pasta, Shop B: cheese)
 - **Live Storeboard**: Real-time Socket.io dashboard showing top-selling products and top-rated shops
+- **Product Detail Page**: Full product info with quantity selector and Neo4j-powered Smart Suggestions
 
-### Bonus — God Mode 📍
-- **Money Map**: Leaflet.js heatmap showing which neighbourhoods buy the most
-- **Smart Product Pairing**: HuggingFace ML model for co-purchase prediction
+### Bonus — God Mode ✅
+- **Money Map**: Leaflet.js + OpenStreetMap heatmap showing which shops drive the most revenue
+- **AI Intent Fallback**: Rate-limit safe — falls back to keyword splitting if Gemini is quota-limited
 
 ---
 
@@ -68,7 +69,20 @@ npm install
 npm run dev
 ```
 
-### 2. Setup Frontend
+### 2. Seed the Database
+```bash
+cd backend
+node seed.js
+```
+This creates 2 shops, 3 users, and 42 products across 6 categories.
+
+| Account | Email | Password |
+|---|---|---|
+| 🛒 Buyer | `aryan@buyer.com` | `password123` |
+| 🏪 Seller 1 | `ramesh@shop.com` | `password123` |
+| 🏪 Seller 2 | `priya@shop.com` | `password123` |
+
+### 3. Setup Frontend
 ```bash
 cd ../frontend
 npm install
@@ -76,7 +90,7 @@ npm install
 npm run dev
 ```
 
-### 3. Open App
+### 4. Open App
 Visit `http://localhost:3000`
 
 ---
@@ -91,17 +105,21 @@ smarter-blinkit/
 │   │   ├── register/           # Buyer / Seller registration
 │   │   ├── dashboard/          # Role-based dashboard
 │   │   ├── shop/               # Shop + intent search
-│   │   └── ai-agent/           # AI Recipe Agent
+│   │   │   └── [id]/           # Product detail + Neo4j suggestions
+│   │   ├── ai-agent/           # AI Recipe Agent (Gemini)
+│   │   ├── storeboard/         # Live Socket.io dashboard
+│   │   └── money-map/          # Leaflet.js revenue heatmap
 │   ├── components/
 │   │   ├── Navbar.tsx
 │   │   ├── CartSidebar.tsx     # Cart with mock checkout
 │   │   ├── FaceLogin.tsx       # face-api.js face recognition
 │   │   ├── BuyerDashboard.tsx
-│   │   └── SellerDashboard.tsx # With barcode scanner tab
+│   │   └── SellerDashboard.tsx # Inventory + barcode scanner tab
 │   └── lib/context.tsx         # Global state (auth, cart, toasts)
 │
 ├── backend/                     # Express API
 │   ├── server.js               # Entry point (MongoDB + Socket.io)
+│   ├── seed.js                 # Mock data seeder (42 products, 2 shops)
 │   ├── models/                 # User, Product, Shop, Order
 │   ├── routes/                 # auth, products, orders, shops, payments, ai
 │   ├── middleware/auth.js      # JWT + role guard
@@ -148,13 +166,14 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 | 1 | Barcode Inventory Manager | ✅ Done |
 | 1 | Mock Payment Checkout | ✅ Done |
 | 1 | Location-based Shop Query | ✅ Done |
-| 2 | AI Recipe Agent (Gemini) | ✅ Done |
+| 2 | AI Recipe Agent (Gemini 2.0 Flash) | ✅ Done |
 | 2 | Neo4j Graph: BOUGHT_WITH | ✅ Done |
 | 2 | Neo4j Graph: SIMILAR_TO | ✅ Done |
 | 3 | Smart Cart Splitting | ✅ Done |
-| 3 | Live Storeboard (Socket.io) | ✅ Backend Done |
-| Bonus | Money Map (Leaflet.js) | 🔄 In Progress |
-| Bonus | Smart Product Pairing (HuggingFace) | 📋 Planned |
+| 3 | Live Storeboard (Socket.io) | ✅ Done |
+| 3 | Product Detail + Neo4j Suggestions | ✅ Done |
+| Bonus | Money Map (Leaflet.js + OSM) | ✅ Done |
+| Bonus | AI Intent Rate-limit Fallback | ✅ Done |
 
 ---
 
@@ -179,4 +198,4 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 
 ---
 
-*Last updated: Stage 1 & 2 complete — March 2026*
+*Last updated: All 4 stages complete — March 2026*
