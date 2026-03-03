@@ -16,7 +16,7 @@ export default function AIAgentPage() {
     const [prompt, setPrompt] = useState('');
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<{ cartItems: CartSuggestion[]; notFound: any[]; ingredients: any[]; fallback?: boolean } | null>(null);
-    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [selected, setSelected] = useState<Set<number>>(new Set());
 
     const examples = ['Make pizza for 4 people', 'Biryani for 6 people', 'Healthy breakfast for the week', 'I have a cold, suggest remedies', 'Movie night snacks'];
 
@@ -27,8 +27,8 @@ export default function AIAgentPage() {
         try {
             const { data } = await api.post('/ai/recipe-agent', { prompt });
             setResults(data);
-            const allIds = new Set<string>(data.cartItems.map((c: CartSuggestion) => c.bestMatch?._id));
-            setSelected(allIds);
+            const allIndices = new Set<number>(data.cartItems.map((_: any, i: number) => i));
+            setSelected(allIndices);
         } catch (err: any) {
             toast(err?.response?.data?.message || 'AI agent failed. Try again.', 'error');
         } finally { setLoading(false); }
@@ -37,8 +37,8 @@ export default function AIAgentPage() {
     const addSelectedToCart = () => {
         if (!user) { toast('Please login first', 'error'); return; }
         let count = 0;
-        results?.cartItems.forEach(item => {
-            if (selected.has(item.bestMatch?._id)) {
+        results?.cartItems.forEach((item, index) => {
+            if (selected.has(index)) {
                 addToCart({ productId: item.bestMatch._id, name: item.bestMatch.name, price: item.bestMatch.price, quantity: item.ingredient.packsToBuy, image: item.bestMatch.image, shopId: item.bestMatch.shopId?._id, shopName: item.bestMatch.shopId?.name });
                 count++;
             }
@@ -46,7 +46,7 @@ export default function AIAgentPage() {
         toast(`${count} items added to cart! 🎉`, 'success');
     };
 
-    const toggleItem = (id: string) => setSelected(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    const toggleItem = (index: number) => setSelected(s => { const n = new Set(s); if (n.has(index)) n.delete(index); else n.add(index); return n; });
 
     return (
         <>
@@ -129,9 +129,9 @@ export default function AIAgentPage() {
 
                             {/* Cart Items */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
-                                {results.cartItems.map(item => (
-                                    <div key={item.bestMatch._id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', cursor: 'pointer', borderColor: selected.has(item.bestMatch._id) ? 'var(--accent)' : 'var(--border)', background: selected.has(item.bestMatch._id) ? 'var(--accent-subtle)' : 'var(--bg-card)' }} onClick={() => toggleItem(item.bestMatch._id)}>
-                                        <input type="checkbox" readOnly checked={selected.has(item.bestMatch._id)} style={{ width: 18, height: 18, accentColor: 'var(--accent)' }} />
+                                {results.cartItems.map((item, index) => (
+                                    <div key={index} className="card" style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', cursor: 'pointer', borderColor: selected.has(index) ? 'var(--accent)' : 'var(--border)', background: selected.has(index) ? 'var(--accent-subtle)' : 'var(--bg-card)' }} onClick={() => toggleItem(index)}>
+                                        <input type="checkbox" readOnly checked={selected.has(index)} style={{ width: 18, height: 18, accentColor: 'var(--accent)' }} />
                                         <div style={{ fontSize: '2rem', width: 50, height: 50, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             {item.bestMatch.image ? <img src={item.bestMatch.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }} /> : '📦'}
                                         </div>

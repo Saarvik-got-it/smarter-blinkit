@@ -9,6 +9,7 @@ export default function BuyerDashboard() {
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'orders' | 'faceid' | 'account'>('orders');
+    const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
     const router = useRouter();
 
     useEffect(() => {
@@ -113,40 +114,92 @@ export default function BuyerDashboard() {
                         </div>
 
                         {/* Orders */}
-                        <div className="card" style={{ padding: '0' }}>
-                            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <h3>My Orders</h3>
-                                <span className="badge badge-blue">{orders.length} total</span>
+                        {selectedOrderId ? (
+                            <div className="card" style={{ padding: '24px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+                                    <div>
+                                        <h3 style={{ margin: 0, marginBottom: '4px' }}>Order Details</h3>
+                                        <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-muted)' }}>ID: #{selectedOrderId}</span>
+                                    </div>
+                                    <button className="btn btn-ghost btn-sm" onClick={() => setSelectedOrderId(null)}>⬅ Back to Orders</button>
+                                </div>
+                                {(() => {
+                                    const order = orders.find(o => o._id === selectedOrderId);
+                                    if (!order) return <p className="text-muted">Order not found.</p>;
+                                    return (
+                                        <div>
+                                            <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', alignItems: 'center' }}>
+                                                <div className={`badge badge-${statusColor[order.status] || 'blue'}`}>{order.status.toUpperCase()}</div>
+                                                <div className="text-muted" style={{ fontSize: '0.85rem' }}>Placed on {new Date(order.createdAt).toLocaleString('en-IN')}</div>
+                                            </div>
+
+                                            <h4 style={{ fontSize: '1.1rem', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>Items ({order.items?.length})</h4>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                {order.items?.map((item: any, i: number) => (
+                                                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                                            {item.image || item.productId?.image ? (
+                                                                <img src={item.image || item.productId?.image} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: '8px' }} />
+                                                            ) : <div style={{ fontSize: '1.8rem', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-card)', borderRadius: '8px' }}>📦</div>}
+                                                            <div>
+                                                                <div style={{ fontWeight: 600 }}>{item.name || item.productId?.name}</div>
+                                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                                                    Qty: {item.quantity} · 🏪 {item.shopId?.name || (typeof item.shopId === 'object' ? item.shopId.name : 'Independent Shop')}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right' }}>
+                                                            <div style={{ fontWeight: 800, color: 'var(--accent)', fontSize: '1.1rem' }}>₹{(item.price * item.quantity).toFixed(2)}</div>
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹{item.price} each</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div style={{ borderTop: '2px dashed var(--border)', marginTop: '24px', paddingTop: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '1.1rem', fontWeight: 600 }}>Grand Total</span>
+                                                <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--accent)' }}>₹{order.totalAmount?.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </div>
-                            {loading ? (
-                                <div style={{ padding: '48px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>
-                            ) : orders.length === 0 ? (
-                                <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                    <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🛍</div>
-                                    <p>No orders yet. Start shopping!</p>
-                                    <a href="/shop" className="btn btn-primary btn-sm" style={{ marginTop: '16px' }}>Browse Products</a>
+                        ) : (
+                            <div className="card" style={{ padding: '0' }}>
+                                <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <h3>My Orders</h3>
+                                    <span className="badge badge-blue">{orders.length} total</span>
                                 </div>
-                            ) : (
-                                <div className="table-wrap">
-                                    <table className="table">
-                                        <thead>
-                                            <tr><th>Order ID</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th></tr>
-                                        </thead>
-                                        <tbody>
-                                            {orders.map(o => (
-                                                <tr key={o._id}>
-                                                    <td><span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-muted)' }}>#{o._id.slice(-8)}</span></td>
-                                                    <td><span style={{ fontWeight: 500 }}>{o.items?.length} items</span></td>
-                                                    <td><span style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{o.totalAmount?.toFixed(2)}</span></td>
-                                                    <td><span className={`badge badge-${statusColor[o.status] || 'blue'}`}>{o.status}</span></td>
-                                                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </div>
+                                {loading ? (
+                                    <div style={{ padding: '48px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }} /></div>
+                                ) : orders.length === 0 ? (
+                                    <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                        <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>🛍</div>
+                                        <p>No orders yet. Start shopping!</p>
+                                        <a href="/shop" className="btn btn-primary btn-sm" style={{ marginTop: '16px' }}>Browse Products</a>
+                                    </div>
+                                ) : (
+                                    <div className="table-wrap">
+                                        <table className="table">
+                                            <thead>
+                                                <tr><th>Order ID</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th><th style={{ textAlign: 'right' }}>Action</th></tr>
+                                            </thead>
+                                            <tbody>
+                                                {orders.map(o => (
+                                                    <tr key={o._id}>
+                                                        <td><span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-muted)' }}>#{o._id.slice(-8)}</span></td>
+                                                        <td><span style={{ fontWeight: 500 }}>{o.items?.length} items</span></td>
+                                                        <td><span style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{o.totalAmount?.toFixed(2)}</span></td>
+                                                        <td><span className={`badge badge-${statusColor[o.status] || 'blue'}`}>{o.status}</span></td>
+                                                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
+                                                        <td style={{ textAlign: 'right' }}><button onClick={() => setSelectedOrderId(o._id)} className="btn btn-ghost btn-sm" style={{ padding: '4px 10px', fontSize: '0.8rem' }}>View</button></td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </>
                 )}
             </main>

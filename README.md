@@ -2,9 +2,23 @@
 
 > An AI-powered marketplace connecting buyers and local sellers. Instead of item-by-item searching, simply describe what you need — the AI fills your cart automatically.
 
-**Status: 🟢 All 4 Stages Completed Partially — Foundation, Automator, Orchestrator, God Mode**
+**Status: 🟢 Features Working**
 
-**NOTE:** Currently working extensively on stage 1. The platform is still under production and some of the features are not working as expected. Also the database is not fully populated with the products and shops. There are some issues with the Gemnini API which will be resolved soon.
+* Dual Login
+* Face ID Login
+* Role-based Routing
+* Theme Consistency
+* Progressive Smart Search
+* AI Recipe Agent
+* Neo4j Graph Suggestions
+* Intent-Aware Search
+* Location Auto-Detect
+* Live Storeboard
+* Smart Cart Splitting
+* Product Detail Page
+* Live Dynamic Filters
+
+**NOTE:** The platform is still under production and some of the features are not working as expected.
 ---
 
 ## 📸 Screenshots
