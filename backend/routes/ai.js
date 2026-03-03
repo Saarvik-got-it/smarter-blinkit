@@ -49,19 +49,19 @@ router.post('/recipe-agent', protect, requireRole('buyer'), async (req, res) => 
 
         // --- Try Gemini first ---
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const systemPrompt = `You are a smart grocery shopping assistant. 
 The user will describe a meal, recipe, or need in natural language.
 Extract a list of grocery items with quantities needed.
 Respond ONLY with a valid JSON array (no markdown, no explanation) in this exact format:
 [
-  { "item": "flour", "quantity": 2, "unit": "kg", "searchQuery": "wheat flour" },
-  { "item": "cheese", "quantity": 200, "unit": "g", "searchQuery": "mozzarella cheese" }
+  { "item": "flour", "packsToBuy": 1, "amountText": "2 kg", "searchQuery": "wheat flour" },
+  { "item": "cheese", "packsToBuy": 1, "amountText": "200 g", "searchQuery": "mozzarella cheese" }
 ]
 Rules:
 - Keep searchQuery simple (1-3 words) for product catalog search
-- Use common grocery units: kg, g, litre, ml, piece, pack, dozen
-- If quantity is unclear, use a reasonable default
+- packsToBuy must be an integer (how many standard retail packages to add to cart)
+- amountText should be the textual quantity required (e.g. "500g", "2 pieces")
 - If the request is not food/grocery related, return an empty array []`;
 
             const result = await model.generateContent([systemPrompt, `User request: ${prompt}`]);
@@ -77,7 +77,7 @@ Rules:
             // Extract meaningful words from prompt as search queries
             const stopWords = new Set(['make', 'for', 'people', 'i', 'a', 'the', 'and', 'with', 'some', 'need', 'want', 'prepare', 'cook', 'please', 'me', 'us', 'my', 'have', 'get', 'find', 'give', 'some', 'how']);
             const words = prompt.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
-            ingredients = words.slice(0, 6).map(w => ({ item: w, quantity: 1, unit: 'piece', searchQuery: w }));
+            ingredients = words.slice(0, 6).map(w => ({ item: w, packsToBuy: 1, amountText: '1 pack', searchQuery: w }));
         }
 
         if (!ingredients.length) {
@@ -89,26 +89,24 @@ Rules:
         const notFound = [];
 
         for (const ingredient of ingredients) {
-            // ✅ Use semantic vector search for ingredients
-            let products = [];
-            const queryVector = await generateEmbedding(ingredient.searchQuery);
-            if (queryVector) {
-                const semanticResults = await neo4jService.semanticSearch(queryVector, 3);
-                const productIds = semanticResults.map(r => r.id);
-                // Fetch full product details from Mongo matching these IDs
-                products = await Product.find({
-                    _id: { $in: productIds },
-                    isAvailable: true,
-                    stock: { $gt: 0 }
-                }).populate('shopId', 'name location rating');
+            // ✅ Use regex search FIRST for exact ingredient matches (prevents weird semantic substitutions)
+            let products = await searchByKeyword(ingredient.searchQuery, 3);
 
-                // Sort to match the Neo4j semantic similarity score order
-                products.sort((a, b) => productIds.indexOf(a._id.toString()) - productIds.indexOf(b._id.toString()));
-            }
-
-            // Fallback to regex if embedding fails or no products found
+            // Fallback to highly-confident semantic vector search if no exact text match exists
             if (!products.length) {
-                products = await searchByKeyword(ingredient.searchQuery, 3);
+                const queryVector = await generateEmbedding(ingredient.searchQuery);
+                if (queryVector) {
+                    const semanticResults = await neo4jService.semanticSearch(queryVector, 3, 0.70); // High threshold
+                    const productIds = semanticResults.map(r => r.id);
+                    products = await Product.find({
+                        _id: { $in: productIds },
+                        isAvailable: true,
+                        stock: { $gt: 0 }
+                    }).populate('shopId', 'name location rating');
+
+                    // Sort to match the Neo4j semantic similarity score order
+                    products.sort((a, b) => productIds.indexOf(a._id.toString()) - productIds.indexOf(b._id.toString()));
+                }
             }
 
             if (products.length) {
@@ -116,7 +114,7 @@ Rules:
                     ingredient,
                     bestMatch: products[0],
                     alternatives: products.slice(1),
-                    suggestedQuantity: ingredient.quantity,
+                    suggestedQuantity: ingredient.packsToBuy,
                     addToCart: true,
                 });
             } else {
@@ -142,7 +140,7 @@ router.post('/intent-search', async (req, res) => {
         let usedFallback = false;
 
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const searchPrompt = `You are a smart search assistant for a grocery/pharmacy/daily needs marketplace.
 Expand the following user query into specific product keywords to search for.
 Respond ONLY with a valid JSON array of strings (max 8 keywords), no markdown:

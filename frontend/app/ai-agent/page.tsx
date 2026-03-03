@@ -5,7 +5,7 @@ import CartSidebar from '@/components/CartSidebar';
 import { useApp } from '@/lib/context';
 
 interface CartSuggestion {
-    ingredient: { item: string; quantity: number; unit: string; searchQuery: string };
+    ingredient: { item: string; packsToBuy: number; amountText: string; searchQuery: string };
     bestMatch: any;
     alternatives: any[];
     addToCart: boolean;
@@ -39,7 +39,7 @@ export default function AIAgentPage() {
         let count = 0;
         results?.cartItems.forEach(item => {
             if (selected.has(item.bestMatch?._id)) {
-                addToCart({ productId: item.bestMatch._id, name: item.bestMatch.name, price: item.bestMatch.price, quantity: item.ingredient.quantity, image: item.bestMatch.image, shopId: item.bestMatch.shopId?._id, shopName: item.bestMatch.shopId?.name });
+                addToCart({ productId: item.bestMatch._id, name: item.bestMatch.name, price: item.bestMatch.price, quantity: item.ingredient.packsToBuy, image: item.bestMatch.image, shopId: item.bestMatch.shopId?._id, shopName: item.bestMatch.shopId?.name });
                 count++;
             }
         });
@@ -138,12 +138,12 @@ export default function AIAgentPage() {
                                         <div style={{ flex: 1 }}>
                                             <div style={{ fontWeight: 700 }}>{item.bestMatch.name}</div>
                                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                                For: {item.ingredient.item} · {item.ingredient.quantity} {item.ingredient.unit} ·
+                                                For: {item.ingredient.item} · {item.ingredient.amountText} ·
                                                 🏪 {item.bestMatch.shopId?.name || 'Local Shop'}
                                             </div>
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
-                                            <div style={{ fontWeight: 800, color: 'var(--accent)', fontSize: '1.1rem' }}>₹{(item.bestMatch.price * item.ingredient.quantity).toFixed(2)}</div>
+                                            <div style={{ fontWeight: 800, color: 'var(--accent)', fontSize: '1.1rem' }}>₹{(item.bestMatch.price * item.ingredient.packsToBuy).toFixed(2)}</div>
                                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹{item.bestMatch.price}/{item.bestMatch.unit}</div>
                                         </div>
                                     </div>
@@ -156,7 +156,7 @@ export default function AIAgentPage() {
                                     <h3 style={{ fontSize: '1rem', marginBottom: '12px', color: 'var(--danger)' }}>⚠️ Items not found in nearby shops</h3>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                                         {results.notFound.map((item: any) => (
-                                            <span key={item.item} className="badge badge-red">{item.item} ({item.quantity} {item.unit})</span>
+                                            <span key={item.item} className="badge badge-red">{item.item} ({item.amountText})</span>
                                         ))}
                                     </div>
                                 </div>

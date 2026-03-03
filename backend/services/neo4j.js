@@ -64,15 +64,16 @@ async function initVectorIndex() {
 }
 
 // Perform Semantic Search via nearest neighbors (Cosine Similarity)
-async function semanticSearch(queryVector, limit = 5) {
+async function semanticSearch(queryVector, limit = 5, minScore = 0.55) {
     const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
     try {
         const result = await session.run(
             `CALL db.index.vector.queryNodes('product_embeddings', $limit, $queryVector)
              YIELD node, score
+             WHERE score >= $minScore
              RETURN node.id AS id, node.name AS name, score
              ORDER BY score DESC`,
-            { queryVector, limit }
+            { queryVector, limit: Number(limit), minScore: Number(minScore) }
         );
 
         return result.records.map((r) => ({
