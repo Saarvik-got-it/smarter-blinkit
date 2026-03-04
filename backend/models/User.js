@@ -38,4 +38,24 @@ userSchema.methods.toJSON = function () {
     return obj;
 };
 
+// ── Auto-update Excel report on new user creation ──────────────
+const path = require('path');
+let _reportTimer = null;
+userSchema.post('save', function () {
+    console.log('📋 User saved — scheduling report regeneration…');
+    // Debounce: wait 2s before regenerating (avoids rapid-fire during bulk ops)
+    if (_reportTimer) clearTimeout(_reportTimer);
+    _reportTimer = setTimeout(async () => {
+        try {
+            // Lazy require with absolute path to avoid circular dependency
+            const servicePath = path.join(__dirname, '..', 'services', 'userReportService');
+            const { generateUserReport } = require(servicePath);
+            await generateUserReport();
+            console.log('✅ Auto-report regeneration complete');
+        } catch (err) {
+            console.error('⚠️ Auto-report generation failed:', err.message);
+        }
+    }, 2000);
+});
+
 module.exports = mongoose.model('User', userSchema);

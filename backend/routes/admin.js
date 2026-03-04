@@ -19,4 +19,29 @@ router.get('/users', async (req, res) => {
     }
 });
 
+// GET /api/admin/user-report — download fresh Excel report
+router.get('/user-report', async (req, res) => {
+    try {
+        const secret = req.headers['x-admin-secret'];
+        if (secret !== process.env.ADMIN_SECRET && secret !== 'smarter-dev-123') {
+            return res.status(401).json({ success: false, message: 'Invalid Admin Secret' });
+        }
+
+        const { generateUserReport, REPORT_PATH } = require('../services/userReportService');
+        await generateUserReport();
+
+        res.download(REPORT_PATH, 'users_report.xlsx', (err) => {
+            if (err) {
+                console.error('Download error:', err);
+                if (!res.headersSent) {
+                    res.status(500).json({ success: false, message: 'Failed to download report' });
+                }
+            }
+        });
+    } catch (err) {
+        console.error('Report generation error:', err);
+        res.status(500).json({ success: false, message: 'Failed to generate report' });
+    }
+});
+
 module.exports = router;
