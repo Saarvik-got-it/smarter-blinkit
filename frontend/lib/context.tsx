@@ -10,7 +10,34 @@ API.interceptors.request.use((config) => {
     return config;
 });
 
-interface User { _id: string; name: string; email: string; role: 'buyer' | 'seller'; }
+// Response interceptor to handle stale sessions (e.g. after a re-seed)
+API.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401 && error.response?.data?.message === 'User not found') {
+            console.warn('Session is stale. Logging out...');
+            if (typeof window !== 'undefined') {
+                localStorage.removeItem('sb_token');
+                localStorage.removeItem('sb_user');
+                localStorage.removeItem('sb_cart');
+                window.location.href = '/login';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
+interface User {
+    _id: string;
+    name: string;
+    email: string;
+    role: 'buyer' | 'seller';
+    location?: {
+        type: 'Point';
+        coordinates: [number, number]; // [lng, lat]
+        address?: string;
+    };
+}
 interface CartItem { productId: string; name: string; price: number; quantity: number; image: string; shopId: string; shopName?: string; }
 
 interface AppContextType {

@@ -10,7 +10,9 @@ const shopSchema = new mongoose.Schema(
             coordinates: { type: [Number], required: true }, // [lng, lat]
             address: { type: String, required: true },
             city: { type: String, default: '' },
+            state: { type: String, default: '' },
             pincode: { type: String, default: '' },
+            country: { type: String, default: 'India' },
         },
         category: { type: String, default: 'General' },
         image: { type: String, default: '' },

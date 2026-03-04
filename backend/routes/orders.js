@@ -5,8 +5,25 @@ const Shop = require('../models/Shop');
 const { protect, requireRole } = require('../middleware/auth');
 const neo4jService = require('../services/neo4j');
 const cartSplitter = require('../services/cartSplitter');
+const axios = require('axios');
 
 const router = express.Router();
+
+function getDistance(coords1, coords2) {
+    if (!coords1 || !coords2 || coords1.length < 2 || coords2.length < 2) return Infinity;
+    const [lon1, lat1] = coords1;
+    const [lon2, lat2] = coords2;
+    if (lat1 === 0 && lon1 === 0) return Infinity;
+
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
 
 // POST /api/orders — place an order
 router.post('/', protect, requireRole('buyer'), async (req, res) => {
@@ -14,21 +31,73 @@ router.post('/', protect, requireRole('buyer'), async (req, res) => {
         const { items, deliveryAddress, deliveryLocation, paymentId, notes } = req.body;
         if (!items?.length) return res.status(400).json({ success: false, message: 'No items in cart' });
 
-        // Fetch products with shop info
+        // ── Local First Cart Splitting Logic ──
         const productIds = items.map((i) => i.productId);
-        const products = await Product.find({ _id: { $in: productIds } }).populate('shopId');
+        const originalProducts = await Product.find({ _id: { $in: productIds } });
 
-        const enrichedItems = items.map((item) => {
-            const p = products.find((pr) => pr._id.toString() === item.productId);
-            if (!p) throw new Error(`Product ${item.productId} not found`);
-            if (p.stock < item.quantity) throw new Error(`Insufficient stock for ${p.name}`);
-            return {
-                productId: p._id, shopId: p.shopId._id,
-                name: p.name, price: p.price, quantity: item.quantity, image: p.image,
-            };
-        });
+        const userCoords = deliveryLocation?.coordinates || req.user.location?.coordinates;
+        const enrichedItems = [];
+
+        for (const item of items) {
+            const origP = originalProducts.find(p => p._id.toString() === item.productId);
+            if (!origP) throw new Error(`Product ${item.productId} not found`);
+
+            // Find all shops with the same product (by barcode or name) and enough stock
+            const query = origP.barcode ? { barcode: origP.barcode } : { name: origP.name };
+            query.stock = { $gte: item.quantity };
+
+            const alternatives = await Product.find(query).populate('shopId');
+            if (alternatives.length === 0) throw new Error(`Insufficient stock for ${origP.name} across all local shops`);
+
+            // Find the closest shop
+            if (userCoords && userCoords.length === 2 && userCoords[0] !== 0) {
+                alternatives.sort((a, b) => {
+                    const dA = getDistance(userCoords, a.shopId?.location?.coordinates);
+                    const dB = getDistance(userCoords, b.shopId?.location?.coordinates);
+                    return dA - dB;
+                });
+            }
+
+            const bestProduct = alternatives[0];
+
+            enrichedItems.push({
+                productId: bestProduct._id,
+                shopId: bestProduct.shopId._id,
+                name: bestProduct.name,
+                price: bestProduct.price,
+                quantity: item.quantity,
+                image: bestProduct.image,
+            });
+        }
 
         const shopGroups = cartSplitter(enrichedItems);
+
+        // ── OSRM API Multi-Stop Routing ──
+        let optimizedRoute = null;
+        if (userCoords && userCoords.length === 2 && userCoords[0] !== 0) {
+            const uniqueShops = new Map();
+            for (const item of enrichedItems) {
+                if (item.image) uniqueShops.set(item.shopId.toString(), item.shopLocation);
+            }
+
+            const coords = Array.from(uniqueShops.values()).filter(Boolean);
+            if (coords.length > 0) {
+                coords.push(userCoords); // Last coordinate is user location
+                const coordString = coords.map(c => `${c[0]},${c[1]}`).join(';');
+                try {
+                    // source=first means driver starts at shop 1, destination=last means ends at user.
+                    // This creates an Open Source VRP representation.
+                    const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coordString}?source=first&destination=last&roundtrip=false`;
+                    const { data } = await axios.get(osrmUrl, { timeout: 3000 });
+                    if (data.code === 'Ok') {
+                        optimizedRoute = data.trips[0];
+                    }
+                } catch (apiErr) {
+                    console.warn('OSRM routing failed/timeout (using fallback):', apiErr.message);
+                }
+            }
+        }
+
         const totalAmount = enrichedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
         const order = await Order.create({
@@ -38,6 +107,7 @@ router.post('/', protect, requireRole('buyer'), async (req, res) => {
             totalAmount,
             deliveryAddress,
             deliveryLocation,
+            optimizedRoute,
             paymentId: paymentId || `mock_${Date.now()}`,
             paymentStatus: 'paid',
             paymentMode: 'mock',

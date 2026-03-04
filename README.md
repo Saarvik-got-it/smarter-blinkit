@@ -12,13 +12,12 @@
 * AI Recipe Agent
 * Neo4j Graph Suggestions
 * Intent-Aware Search
-* Location Auto-Detect
-* Live Storeboard
-* Smart Cart Splitting
-* Product Detail Page
-* Live Dynamic Filters
+*   **Local First & Manual Geocoding**: Detects location or geocodes manual addresses for split-delivery logic.
+*   **3-Tier Smart Selection**: AI Recommendations with a robust MongoDB fallback (Graph -> AI -> Category).
+*   **Multi-City Marketplace**: Pre-seeded shops and buyers across Bengaluru, Mumbai, and New Delhi.
+*   **Dynamic AI Vectors**: Automated Gemini embedding backfill for new and existing products.
 
-**NOTE:** The platform is still under production and some of the features are not working as expected.
+**NOTE:** The platform is fully functional with all 4 stages (Foundation, Automator, Orchestrator, God Mode) complete and verified.
 ---
 
 ## 📸 Screenshots
@@ -54,11 +53,26 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 | **Primary DB** | MongoDB Atlas (users, products, orders, shops) |
 | **Graph DB** | Neo4j AuraDB (product relationships: SIMILAR_TO, BOUGHT_WITH) |
 | **AI / LLM** | Google Gemini 2.0 Flash (intent parsing, recipe agent) |
+| **Embeddings** | Google Gemini `gemini-embedding-001` (3072-dimensional) |
 | **Face Recognition** | face-api.js (browser-side, TensorFlow.js models) |
-| **Barcode Scanning** | `@zxing/browser` (ZXing — cross-platform, all major barcode formats) |
+| **Barcode Scanning** | `@zxing/browser` (ZXing — cross-platform) |
 | **Payments** | Mock payment flow (Razorpay-ready architecture) |
 | **Real-time** | Socket.io (live storeboard events) |
-| **Maps** | Leaflet.js + OpenStreetMap (Money Map) |
+| **Maps** | Leaflet.js + Leaflet.heat |
+
+---
+
+## 📡 External APIs & Services
+
+We leverage a suite of modern APIs to power the "Smarter" features:
+
+1.  **Google Gemini AI (`gemini-2.0-flash`)**: Orchestrates the Recipe Agent, Intent Search, and Natural Language processing.
+2.  **Google Gemini Embeddings (`gemini-embedding-001`)**: Generates 3072-dimensional vector representations for high-precision semantic product pairing.
+3.  **Nominatim (OpenStreetMap)**: Provides forward and reverse geocoding for detecting user locations and converting typed addresses to coordinates.
+4.  **OSRM (Open Source Routing Machine)**: Solves the Vehicle Routing Problem (VRP) to calculate optimized multi-stop delivery routes between shops and the buyer.
+5.  **Indian Postal Pin Code API (`api.postalpincode.in`)**: Automatically maps 6-digit PIN codes to their respective Districts/Cities and States during registration.
+6.  **Hugging Face (Inference Fallback)**: Used as a secondary layer for semantic similarity if Gemini quotas are exceeded.
+
 
 ---
 
@@ -86,8 +100,10 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 - **Live Dynamic Filters**: Categories and Shops are fetched live from the database. Any new shop or category added by a seller is instantly reflected for all buyers. Shop filter ensures you can browse specific catalogs effortlessly.
 
 ### Bonus / God Mode ✅
-- **Money Map**: Leaflet.js + OpenStreetMap heatmap showing which shops drive the most revenue.
-- **Advanced Seller Dashboard**: Barcode scanner powered by `@zxing/browser` (ZXing) — works on Windows/Mac/Linux in Chrome and Edge, supports EAN-13, UPC, Code-128, QR and more.
+- **Money Map**: Leaflet.js heatmap showing order density and intensity based on live MongoDB transactions.
+- **Smart Product Pairing**: Hybrid engine using **Google Gemini** embeddings (3072-dim). It features a 3-tier fallback (Neo4j Graph -> Semantic Vector -> MongoDB Category) to ensure 100% availability with conceptual pairing.
+- **Local First Geocoding**: Manual address fields on registration are automatically converted to coordinates via Nominatim fallback if GPS is not used.
+- **Advanced Inventory**: ZXing-powered barcode scanner for sellers to manage 1:1 inventory mapping.
 - **Secure Developer Admin**: Secure Admin Panel (`/admin/users`) for full site surveillance.
 
 ---
@@ -114,13 +130,16 @@ npm run dev
 cd backend
 node seed.js
 ```
-This creates 2 shops, 3 users, and 42 products across 6 categories.
+This creates **126 products** across 4 shops in 3 major cities, providing a ready-to-test multi-city marketplace environment.
 
-| Account | Email | Password |
+| Account | Email | Location |
 |---|---|---|
-| 🛒 Buyer | `aryan@buyer.com` | `password123` |
-| 🏪 Seller 1 | `ramesh@shop.com` | `password123` |
-| 🏪 Seller 2 | `priya@shop.com` | `password123` |
+| 🛒 BLR Buyer | `aryan@buyer.com` | Bengaluru |
+| 🛒 BOM Buyer | `maya@buyer.com` | Mumbai |
+| 🛒 DEL Buyer | `rohan@buyer.com` | New Delhi |
+| 🏪 Seller 1 | `ramesh@shop.com` | Ramesh General Store (BLR) |
+| 🏪 Seller 4 | `neha@shop.com` | Neha Organics (BOM) |
+| 📦 Password | `password123` | (Common for all) |
 
 ### 3. Setup Frontend
 ```bash
@@ -215,6 +234,7 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 | 3 | Live Storeboard (Socket.io) | ✅ Done |
 | 3 | Product Detail + Neo4j Suggestions | ✅ Done |
 | Bonus | Money Map (Leaflet.js + OSM) | ✅ Done |
+| Bonus | Smart Product Pairing (Hugging Face + Neo4j) | ✅ Done |
 | Bonus | AI Intent Rate-limit Fallback | ✅ Done |
 
 ---

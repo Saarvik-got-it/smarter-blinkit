@@ -4,6 +4,11 @@ import { useApp } from '@/lib/context';
 import { useRouter } from 'next/navigation';
 import FaceRegister from '@/components/FaceRegister';
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import { io } from 'socket.io-client';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import dynamic from 'next/dynamic';
+
+const MoneyMap = dynamic(() => import('@/components/MoneyMap'), { ssr: false });
 
 export default function SellerDashboard() {
     const { user, api, toast, deleteAccount } = useApp();
@@ -11,7 +16,7 @@ export default function SellerDashboard() {
     const [shop, setShop] = useState<any>(null);
     const [products, setProducts] = useState<any[]>([]);
     const [orders, setOrders] = useState<any[]>([]);
-    const [tab, setTab] = useState<'overview' | 'inventory' | 'orders' | 'barcode' | 'settings'>('overview');
+    const [tab, setTab] = useState<'overview' | 'inventory' | 'orders' | 'barcode' | 'settings' | 'storeboard'>('overview');
     const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '' });
     const [shopEdit, setShopEdit] = useState({ name: '', address: '', phone: '' });
     const [savingShop, setSavingShop] = useState(false);
@@ -141,11 +146,30 @@ export default function SellerDashboard() {
         finally { setSavingShop(false); }
     };
 
+    // Storeboard logic
+    const [storeboardData, setStoreboardData] = useState<any>({ fastestSelling: [], topRatedShops: [], heatmapData: [] });
+    const [liveEvents, setLiveEvents] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (tab === 'storeboard') {
+            api.get('/admin/storeboard').then(r => setStoreboardData(r.data));
+            const socketUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5000';
+            const socket = io(socketUrl);
+            socket.on('newOrder', (data) => {
+                setLiveEvents(prev => [{ ...data, id: Date.now() }, ...prev].slice(0, 10)); // Keep last 10
+                // Re-fetch rankings on new order to keep charts strictly up-to-date
+                api.get('/admin/storeboard').then(r => setStoreboardData(r.data));
+            });
+            return () => { socket.disconnect(); };
+        }
+    }, [tab, api]);
+
     const totalRevenue = orders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0);
 
     const sidebarLinks = [
         { id: 'overview', icon: '📊', label: 'Overview' },
         { id: 'inventory', icon: '📦', label: 'Inventory' },
+        { id: 'storeboard', icon: '⚡', label: 'Live Storeboard' },
         { id: 'orders', icon: '📋', label: 'Orders' },
         { id: 'barcode', icon: '🔲', label: 'Barcode Scanner' },
         { id: 'settings', icon: '⚙️', label: 'Shop Settings' },
@@ -232,6 +256,101 @@ export default function SellerDashboard() {
                                         </div>
                                     ))}
                                     {products.length === 0 && <p className="text-muted" style={{ textAlign: 'center', padding: '20px' }}>No products yet. Add your first product!</p>}
+                                </div>
+                            </>
+                        )}
+
+                        {tab === 'storeboard' && (
+                            <>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                    <h2>⚡ Live Storeboard</h2>
+                                    <div className="badge badge-red" style={{ animation: 'pulse 1.5s infinite' }}>● LIVE</div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: '24px', alignItems: 'start' }}>
+                                    {/* Left: Charts */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                        <div className="card" style={{ padding: '24px' }}>
+                                            <h3 style={{ marginBottom: '16px' }}>🔥 Fastest Selling Items across City</h3>
+                                            <div style={{ height: 280, width: '100%' }}>
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart data={storeboardData.fastestSelling} layout="vertical" margin={{ top: 0, right: 30, left: 40, bottom: 0 }}>
+                                                        <XAxis type="number" hide />
+                                                        <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 12 }} />
+                                                        <Tooltip cursor={{ fill: 'rgba(0,0,0,0.05)' }} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                                        <Bar dataKey="salesCount" radius={[0, 4, 4, 0]}>
+                                                            {storeboardData.fastestSelling.map((entry: any, index: number) => (
+                                                                <Cell key={`cell-${index}`} fill={index === 0 ? '#ff6b35' : '#f7c59f'} />
+                                                            ))}
+                                                        </Bar>
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        <div className="card" style={{ padding: '24px' }}>
+                                            <h3 style={{ marginBottom: '16px' }}>⭐ Top Rated Shops</h3>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                {storeboardData.topRatedShops.map((s: any, i: number) => (
+                                                    <div key={s._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: i === 0 ? '#ff6b35' : 'var(--text-muted)' }}>#{i + 1}</div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 600 }}>{s.name}</div>
+                                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{s.city}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'right' }}>
+                                                            <div style={{ color: '#fbbf24', fontWeight: 700 }}>★ {s.rating}</div>
+                                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{s.totalOrders} Orders</div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Right: Live Feed */}
+                                    <div className="card" style={{ padding: '20px', background: 'var(--bg-card)', border: '2px solid var(--accent-subtle)' }}>
+                                        <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>📡 Live Feed {liveEvents.length > 0 && <span className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} />}</h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            {liveEvents.length === 0 ? (
+                                                <div className="text-muted" style={{ padding: '20px', textAlign: 'center' }}>Waiting for new orders...</div>
+                                            ) : (
+                                                liveEvents.map((evt) => (
+                                                    <div key={evt.id} style={{ padding: '12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', animation: 'slideIn 0.3s ease-out' }}>
+                                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                                            Just now • Order #{evt.order?.slice(-6)}
+                                                        </div>
+                                                        <div style={{ fontWeight: 600, color: 'var(--accent)' }}>₹{evt.totalAmount?.toFixed(2)}</div>
+                                                        <div style={{ fontSize: '0.85rem', marginTop: '6px' }}>
+                                                            {evt.shopGroups?.map((sg: any) => `${sg.items.length} items from ${sg.shopName || 'Shop'}`).join(' & ')}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Full Width: Money Map */}
+                                <div className="card" style={{ padding: '24px', marginTop: '24px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                                        <div>
+                                            <h3>🗺️ The Money Map</h3>
+                                            <p className="text-muted" style={{ fontSize: '0.85rem' }}>Geospatial heatmap of city-wide orders. See where demand is highest to plan your next dark store.</p>
+                                        </div>
+                                        <div className="badge badge-blue">Data Science</div>
+                                    </div>
+                                    <div style={{ width: '100%', height: 400, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                                        {storeboardData.heatmapData && storeboardData.heatmapData.length > 0 ? (
+                                            <MoneyMap data={storeboardData.heatmapData} />
+                                        ) : (
+                                            <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                                                Loading geographical insights...
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </>
                         )}

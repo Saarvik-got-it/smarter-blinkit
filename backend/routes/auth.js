@@ -112,6 +112,36 @@ router.get('/me', protect, async (req, res) => {
     res.json({ success: true, user: req.user });
 });
 
+// POST /api/auth/reset-password-request (Mock)
+router.post('/reset-password-request', async (req, res) => {
+    try {
+        const { email } = req.body;
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        // In a real app, send email with token. Here we just return success.
+        res.json({ success: true, message: 'Password reset instructions sent to your email (Mocked)' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// POST /api/auth/reset-password (Mock)
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { email, newPassword } = req.body;
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        user.password = newPassword; // Pre-save hook will hash it automatically
+        await user.save();
+
+        res.json({ success: true, message: 'Password reset successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // DELETE /api/auth/delete-account
 router.delete('/delete-account', protect, async (req, res) => {
     try {

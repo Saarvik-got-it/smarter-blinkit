@@ -6,6 +6,7 @@ export default function CartSidebar() {
     const { cart, cartOpen, setCartOpen, removeFromCart, updateQty, cartTotal, user, api, toast, clearCart } = useApp();
     const [step, setStep] = useState<'cart' | 'location' | 'payment' | 'processing'>('cart');
     const [address, setAddress] = useState('');
+    const [coords, setCoords] = useState<[number, number] | null>(null);
     const [locating, setLocating] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState('cod');
 
@@ -16,6 +17,7 @@ export default function CartSidebar() {
         }
         setLocating(true);
         navigator.geolocation.getCurrentPosition(async (pos) => {
+            setCoords([pos.coords.longitude, pos.coords.latitude]);
             try {
                 // Free reverse geocoding via OpenStreetMap Nominatim
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
@@ -44,6 +46,7 @@ export default function CartSidebar() {
             await api.post('/orders', {
                 items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
                 deliveryAddress: address,
+                deliveryLocation: coords ? { type: 'Point', coordinates: coords } : undefined,
                 paymentId: intent.paymentId,
             });
             clearCart();

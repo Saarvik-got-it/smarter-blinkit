@@ -45,6 +45,7 @@ const orderSchema = new mongoose.Schema(
         paymentId: { type: String, default: '' },
         paymentMode: { type: String, default: 'mock' },
         estimatedDelivery: { type: Date },
+        optimizedRoute: { type: mongoose.Schema.Types.Mixed },
         notes: { type: String, default: '' },
     },
     { timestamps: true }

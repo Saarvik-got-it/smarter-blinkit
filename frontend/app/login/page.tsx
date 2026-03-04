@@ -55,7 +55,10 @@ export default function LoginPage() {
                                         value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Password</label>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <label className="form-label">Password</label>
+                                        <Link href="/forgot-password" style={{ fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 600 }}>Forgot Password?</Link>
+                                    </div>
                                     <input className="form-input" type="password" placeholder="••••••••"
                                         value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required />
                                 </div>

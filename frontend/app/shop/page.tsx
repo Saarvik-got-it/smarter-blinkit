@@ -17,6 +17,7 @@ export default function ShopPage() {
     const [availableShops, setAvailableShops] = useState<any[]>([]);
     const [selectedShop, setSelectedShop] = useState('');
     const [categoriesList, setCategoriesList] = useState<string[]>([]);
+    const [nearbyOnly, setNearbyOnly] = useState(true);
 
     const emoji: Record<string, string> = { Groceries: '🌾', Dairy: '🥛', Fresh: '🥬', Pharmacy: '💊', Beverages: '🥤', Snacks: '🍿', Electronics: '📱', Staples: '🍚', Stationery: '✏️', Meat: '🥩', Bakery: '🍞' };
     const getCategoryEmoji = (cat: string) => emoji[cat] || '📦';
@@ -28,19 +29,22 @@ export default function ShopPage() {
         api.get('/products/categories').then((r) => setCategoriesList(r.data.categories || [])).catch(() => { });
     }, [api]);
 
-    const doSearch = async (q: string, cat: string, shop: string) => {
+    const doSearch = async (q: string, cat: string, shop: string, nearby: boolean) => {
         setLoading(true); setExpandedKeywords([]);
         try {
+            const lat = user?.location?.coordinates?.[1];
+            const lng = user?.location?.coordinates?.[0];
+
             if (searchMode === 'intent' && q) {
-                const { data } = await api.post('/ai/intent-search', { query: q });
+                const { data } = await api.post('/ai/intent-search', { query: q, lat, lng, nearbyOnly: nearby });
                 let intentResults = data.results || [];
                 // Frontend-side shop/category filtering for AI results
                 if (shop) intentResults = intentResults.filter((r: any) => r.product?.shopId?._id === shop);
                 if (cat) intentResults = intentResults.filter((r: any) => r.product?.category === cat);
-                setProducts(intentResults.map((r: any) => r.product));
+                setProducts(intentResults.map((r: any) => ({ ...r.product, distance: r.product.distance })));
                 setExpandedKeywords(data.expandedKeywords || []);
             } else {
-                const { data } = await api.get('/products/search', { params: { q, category: cat, shopId: shop, limit: 40 } });
+                const { data } = await api.get('/products/search', { params: { q, category: cat, shopId: shop, limit: 40, lat, lng, nearbyOnly: nearby } });
                 setProducts(data.products || []);
             }
         } catch { } finally { setLoading(false); }
@@ -49,12 +53,12 @@ export default function ShopPage() {
     // Live sync search: Trigger doSearch whenever dependencies change, with a 300ms debounce
     useEffect(() => {
         const timer = setTimeout(() => {
-            doSearch(query, category, selectedShop);
+            doSearch(query, category, selectedShop, nearbyOnly);
         }, 300);
         return () => clearTimeout(timer);
-    }, [query, category, selectedShop, searchMode]);
+    }, [query, category, selectedShop, searchMode, nearbyOnly, user]);
 
-    const handleSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(query, category, selectedShop); };
+    const handleSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(query, category, selectedShop, nearbyOnly); };
 
     return (
         <>
@@ -96,9 +100,14 @@ export default function ShopPage() {
                                 </select>
 
                                 <select className="form-select" style={{ minWidth: '180px' }} value={selectedShop} onChange={e => setSelectedShop(e.target.value)}>
-                                    <option value="">All Shops Nearby</option>
+                                    <option value="">All Shops</option>
                                     {availableShops.map(shop => <option key={shop._id} value={shop._id}>🏪 {shop.name}</option>)}
                                 </select>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                                    <input type="checkbox" id="nearbyOnly" checked={nearbyOnly} onChange={e => setNearbyOnly(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                                    <label htmlFor="nearbyOnly" style={{ fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>Nearby Only (50km)</label>
+                                </div>
 
                                 {(category || selectedShop) && (
                                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setCategory(''); setSelectedShop(''); }}>Clear</button>
@@ -125,45 +134,141 @@ export default function ShopPage() {
                             <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔍</div>
                             <p>No products found. Try a different search.</p>
                         </div>
-                    ) : (
+                    ) : selectedShop ? (
+                        /* Single Shop View - Professional Grid */
                         <>
-                            <p className="text-muted" style={{ marginBottom: '16px', fontSize: '0.875rem' }}>{products.length} products found</p>
+                            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>🏪 {products[0]?.shopId?.name || 'Local Shop'}</h2>
+                                    <p className="text-muted">{products.length} products available</p>
+                                </div>
+                                <button onClick={() => setSelectedShop('')} className="btn btn-secondary btn-sm">← Back to all shops</button>
+                            </div>
                             <div className="product-grid">
                                 {products.map(p => (
                                     <div key={p._id} className="product-card">
-                                        <Link href={`/shop/${p._id}`} style={{ display: 'block' }}>
+                                        <Link href={`/shop/${p._id}`}>
                                             <div className="product-card-image">
                                                 {p.image ? <img src={p.image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : getCategoryEmoji(p.category)}
                                             </div>
-                                            {p.stock < 10 && p.stock > 0 && <span className="product-badge" style={{ background: 'var(--warning)', color: '#2d1a00' }}>Low Stock</span>}
-                                            {p.stock === 0 && <span className="product-badge" style={{ background: 'var(--danger)', color: '#fff' }}>Out of Stock</span>}
                                             <div className="product-card-body">
-                                                <div className="product-card-name">{p.name}</div>
-                                                <div className="product-card-shop">🏪 {p.shopId?.name || 'Local Shop'}</div>
+                                                <div className="product-card-name" style={{ height: '3rem', overflow: 'hidden' }}>{p.name}</div>
+                                                <div className="product-card-footer">
+                                                    <div>
+                                                        <div className="product-card-price">₹{p.price}</div>
+                                                        <div className="product-card-unit">per {p.unit}</div>
+                                                    </div>
+                                                    <button
+                                                        disabled={p.stock === 0}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            if (!user) { toast('Please login to add to cart', 'error'); return; }
+                                                            addToCart({ productId: p._id, name: p.name, price: p.price, quantity: 1, image: p.image, shopId: p.shopId?._id, shopName: p.shopId?.name });
+                                                        }}
+                                                        className="btn btn-primary btn-sm"
+                                                    >
+                                                        {p.stock === 0 ? 'N/A' : '+ Add'}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </Link>
-                                        <div style={{ padding: '0 14px 14px' }}>
-                                            <div className="product-card-footer">
-                                                <div>
-                                                    <div className="product-card-price">₹{p.price}</div>
-                                                    <div className="product-card-unit">per {p.unit}</div>
-                                                </div>
-                                                <button
-                                                    disabled={p.stock === 0}
-                                                    onClick={() => {
-                                                        if (!user) { toast('Please login to add to cart', 'error'); return; }
-                                                        addToCart({ productId: p._id, name: p.name, price: p.price, quantity: 1, image: p.image, shopId: p.shopId?._id, shopName: p.shopId?.name });
-                                                    }}
-                                                    className="btn btn-primary btn-sm"
-                                                >
-                                                    {p.stock === 0 ? 'N/A' : '+ Add'}
-                                                </button>
-                                            </div>
-                                        </div>
                                     </div>
                                 ))}
                             </div>
                         </>
+                    ) : (
+                        /* Multi-Shop Bucketed View - Horizontal Rows */
+                        (() => {
+                            const shopsMap: Record<string, { shop: any, products: any[] }> = {};
+                            products.forEach(p => {
+                                const sid = p.shopId?._id || 'local';
+                                if (!shopsMap[sid]) {
+                                    shopsMap[sid] = {
+                                        shop: {
+                                            ...p.shopId,
+                                            distance: p.distance // Attach distance from product to shop record
+                                        } || { name: 'Local Shop', distance: 0 },
+                                        products: []
+                                    };
+                                }
+                                shopsMap[sid].products.push(p);
+                            });
+
+                            const sortedShops = Object.values(shopsMap).sort((a, b) => (a.shop.distance || 0) - (b.shop.distance || 0));
+
+                            return (
+                                <>
+                                    <p className="text-muted" style={{ marginBottom: '24px', fontSize: '0.875rem' }}>
+                                        Found results from {sortedShops.length} shops
+                                    </p>
+
+                                    {sortedShops.map(({ shop, products: shopProducts }) => (
+                                        <div key={shop._id || 'local'} style={{ marginBottom: '48px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '16px', paddingRight: '12px' }}>
+                                                <div>
+                                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        🏪 {shop.name}
+                                                    </h2>
+                                                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '6px' }}>
+                                                        <span style={{ fontSize: '0.8rem', color: (shop.distance ?? 0) > 50 ? 'var(--danger)' : 'var(--accent)', fontWeight: 700, background: (shop.distance ?? 0) > 50 ? 'rgba(255,59,48,0.1)' : 'rgba(0,210,106,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                                                            📍 {shop.distance === undefined ? 'Unknown distance' : shop.distance < 1 ? '< 1 km' : `${Math.round(shop.distance)} km`} away
+                                                        </span>
+                                                        {shop.rating && (
+                                                            <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 600 }}>⭐ {shop.rating}</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => setSelectedShop(shop._id)} className="btn btn-ghost btn-sm" style={{ fontWeight: 600 }}>
+                                                    View all from this store →
+                                                </button>
+                                            </div>
+
+                                            <div style={{
+                                                display: 'flex',
+                                                gap: '20px',
+                                                overflowX: 'auto',
+                                                paddingBottom: '20px',
+                                                scrollSnapType: 'x mandatory',
+                                                msOverflowStyle: 'none',
+                                                scrollbarWidth: 'none',
+                                                margin: '0 -10px',
+                                                padding: '0 10px 20px'
+                                            }} className="no-scrollbar">
+                                                {shopProducts.map(p => (
+                                                    <div key={p._id} className="product-card" style={{ flex: '0 0 250px', scrollSnapAlign: 'start', margin: 0 }}>
+                                                        <Link href={`/shop/${p._id}`}>
+                                                            <div className="product-card-image">
+                                                                {p.image ? <img src={p.image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : getCategoryEmoji(p.category)}
+                                                            </div>
+                                                            <div className="product-card-body" style={{ padding: '16px' }}>
+                                                                <div className="product-card-name" style={{ fontSize: '0.95rem', height: '2.5rem', overflow: 'hidden' }}>{p.name}</div>
+                                                                <div className="product-card-footer" style={{ marginTop: '12px' }}>
+                                                                    <div>
+                                                                        <div className="product-card-price">₹{p.price}</div>
+                                                                        <div className="product-card-unit">per {p.unit}</div>
+                                                                    </div>
+                                                                    <button
+                                                                        disabled={p.stock === 0}
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            if (!user) { toast('Please login to add to cart', 'error'); return; }
+                                                                            addToCart({ productId: p._id, name: p.name, price: p.price, quantity: 1, image: p.image, shopId: p.shopId?._id, shopName: p.shopId?.name });
+                                                                        }}
+                                                                        className="btn btn-primary btn-sm"
+                                                                    >
+                                                                        {p.stock === 0 ? 'N/A' : '+ Add'}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </Link>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </>
+                            );
+                        })()
                     )}
                 </div>
             </main>

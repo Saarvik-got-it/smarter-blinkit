@@ -10,20 +10,67 @@ const User = require('./models/User');
 const Shop = require('./models/Shop');
 const Product = require('./models/Product');
 const neo4jService = require('./services/neo4j');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const delay = ms => new Promise(res => setTimeout(res, ms));
+
+async function generateEmbeddingWithRetry(text, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+            const result = await model.embedContent(text);
+            return result.embedding.values;
+        } catch (err) {
+            console.error(`Embedding attempt ${i + 1} failed:`, err.message);
+            if (i < retries - 1) await delay(3000); // 3s wait on failure
+            else throw err;
+        }
+    }
+}
 
 // ── Mock Data ──────────────────────────────────────────────────
 const SELLERS = [
     {
         user: { name: 'Ramesh Agarwal', email: 'ramesh@shop.com', password: 'password123', role: 'seller', phone: '+91-9876543210' },
-        shop: { name: 'Ramesh General Store', address: '12, MG Road, Bengaluru', city: 'Bengaluru', pincode: '560001', coordinates: [77.5946, 12.9716] },
+        shop: { name: 'Ramesh General Store (BLR)', address: '12, MG Road, Bengaluru', city: 'Bengaluru', pincode: '560001', coordinates: [77.5946, 12.9716] },
     },
     {
         user: { name: 'Priya Mehta', email: 'priya@shop.com', password: 'password123', role: 'seller', phone: '+91-9123456789' },
-        shop: { name: "Priya's Pharmacy & Fresh", address: '45, Indiranagar, Bengaluru', city: 'Bengaluru', pincode: '560038', coordinates: [77.6413, 12.9784] },
+        shop: { name: 'Priyas Pharmacy & Fresh (BLR)', address: '45, Indiranagar, Bengaluru', city: 'Bengaluru', pincode: '560038', coordinates: [77.6413, 12.9784] },
+    },
+    {
+        user: { name: 'Amit Singh', email: 'amit@shop.com', password: 'password123', role: 'seller', phone: '+91-9888877777' },
+        shop: { name: 'Amit SuperMart (DEL)', address: 'Connaught Place, New Delhi', city: 'New Delhi', pincode: '110001', coordinates: [77.2167, 28.6328] },
+    },
+    {
+        user: { name: 'Neha Joshi', email: 'neha@shop.com', password: 'password123', role: 'seller', phone: '+91-9111122222' },
+        shop: { name: 'Neha Organics (BOM)', address: 'Bandra West, Mumbai', city: 'Mumbai', pincode: '400050', coordinates: [72.8333, 19.0500] },
     },
 ];
 
-const BUYER = { name: 'Aryan Sharma', email: 'aryan@buyer.com', password: 'password123', role: 'buyer', phone: '+91-9988776655' };
+const BUYERS = [
+    {
+        name: 'Aryan Sharma', email: 'aryan@buyer.com', password: 'password123', role: 'buyer', phone: '+91-9988776655',
+        location: { type: 'Point', coordinates: [77.6000, 12.9700], address: 'Brigade Road, Bengaluru' }
+    },
+    {
+        name: 'Sneha Rao', email: 'sneha@buyer.com', password: 'password123', role: 'buyer', phone: '+91-9988776666',
+        location: { type: 'Point', coordinates: [77.6300, 12.9750], address: 'Domlur, Bengaluru' }
+    },
+    {
+        name: 'Rohan Gupta', email: 'rohan@buyer.com', password: 'password123', role: 'buyer', phone: '+91-9988776677',
+        location: { type: 'Point', coordinates: [77.2000, 28.6000], address: 'India Gate vicinity, New Delhi' }
+    },
+    {
+        name: 'Maya Patel', email: 'maya@buyer.com', password: 'password123', role: 'buyer', phone: '+91-9988776688',
+        location: { type: 'Point', coordinates: [72.8200, 19.0100], address: 'Colaba, Mumbai' }
+    },
+    {
+        name: 'Jaipur User', email: 'jaipur@buyer.com', password: 'password123', role: 'buyer', phone: '+91-9000000000',
+        location: { type: 'Point', coordinates: [75.7873, 26.9124], address: 'C-Scheme, Jaipur, Rajasthan', city: 'Jaipur', state: 'Rajasthan', pincode: '302001', country: 'India' }
+    }
+];
 
 // Products keyed by [shopIndex, category]
 // shopIndex 0 = Ramesh General Store, 1 = Priya's Pharmacy & Fresh
@@ -86,68 +133,146 @@ async function seed() {
         await mongoose.connect(process.env.MONGODB_URI);
         console.log('✅ MongoDB connected');
 
-        // Clear existing data
-        await Promise.all([
-            User.deleteMany({}),
-            Shop.deleteMany({}),
-            Product.deleteMany({}),
-        ]);
-        console.log('🗑  Cleared existing data');
+        // Initialize Neo4j Index
+        try {
+            await neo4jService.initVectorIndex();
+        } catch (err) {
+            console.warn('⚠️ Neo4j Index initialization failed (Seeding will continue for MongoDB):', err.message);
+        }
 
-        // Create buyer
-        const buyer = await User.create(BUYER);
-        console.log(`👤 Created buyer: ${buyer.email}`);
+        console.log('🔄 Starting Intelligent Sync (Non-destructive)...');
+        console.log(`📊 Found ${BUYERS.length} buyers to sync.`);
 
-        // Create sellers + shops
+        // Create/Update buyers
+        console.log('🔄 Starting Intelligent Sync (Non-destructive)...');
+        for (const b of BUYERS) {
+            const hashedPassword = await bcrypt.hash(b.password, 12);
+            await User.findOneAndUpdate(
+                { email: b.email },
+                { $set: { ...b, password: hashedPassword } },
+                { upsert: true }
+            );
+            console.log(`👤 Synced buyer: ${b.email}`);
+        }
+
+        // Create/Update sellers + shops
         const shops = [];
         for (const s of SELLERS) {
-            const seller = await User.create(s.user);
-            const shop = await Shop.create({
-                name: s.shop.name,
-                ownerId: seller._id,
-                location: {
-                    type: 'Point',
-                    coordinates: s.shop.coordinates,
-                    address: s.shop.address,
-                    city: s.shop.city,
-                    pincode: s.shop.pincode,
-                },
-                isOpen: true,
-                rating: (Math.random() * 1.5 + 3.5).toFixed(1),
-                isVerified: true,
-            });
-            shops.push(shop);
-            console.log(`🏪 Created shop: ${shop.name} (seller: ${seller.email})`);
-        }
+            const hashedPassword = await bcrypt.hash(s.user.password, 12);
+            const seller = await User.findOneAndUpdate(
+                { email: s.user.email },
+                { $set: { ...s.user, password: hashedPassword } },
+                { upsert: true, new: true }
+            );
 
-        // Create products
+            const shop = await Shop.findOneAndUpdate(
+                { ownerId: seller._id },
+                {
+                    $set: {
+                        name: s.shop.name,
+                        location: {
+                            type: 'Point',
+                            coordinates: s.shop.coordinates,
+                            address: s.shop.address,
+                            city: s.shop.city,
+                            pincode: s.shop.pincode,
+                            state: s.shop.state || '',
+                            country: s.shop.country || 'India',
+                        },
+                        isOpen: true,
+                        isVerified: true,
+                    }
+                },
+                { upsert: true, new: true }
+            );
+            shops.push(shop);
+            console.log(`🏪 Synced shop: ${shop.name}`);
+        }
+        console.log(`✅ User/Shop sync complete. (${shops.length} shops live)`);
+
+        // Stage 1: Fast Bulk Creation
+        console.log('📦 Starting Stage 1: Fast Bulk Product Creation...');
+        const baseProductNodes = [];
         let created = 0;
+
         for (const p of PRODUCTS) {
             const shop = shops[p.shopIdx];
-            const product = await Product.create({
-                name: p.name,
-                description: p.description,
-                price: p.price,
-                stock: p.stock,
-                unit: p.unit,
-                category: p.category,
-                barcode: p.barcode,
-                tags: p.tags,
-                shopId: shop._id,
-                isAvailable: true,
-                salesCount: Math.floor(Math.random() * 200),
-                rating: parseFloat((Math.random() * 1.5 + 3.5).toFixed(1)),
-            });
-
-            // Sync to Neo4j
-            try {
-                await neo4jService.upsertProduct(product._id.toString(), product.name, product.category);
-            } catch {
-                // Neo4j errors are non-fatal for seeding
-            }
+            const product = await Product.findOneAndUpdate(
+                { barcode: p.barcode, shopId: shop._id },
+                {
+                    $set: {
+                        ...p,
+                        location: shop.location,
+                        isAvailable: true,
+                        embedding: [] // Reset to be backfilled by Stage 2 if needed
+                    },
+                    $setOnInsert: {
+                        salesCount: Math.floor(Math.random() * 200),
+                        rating: parseFloat((Math.random() * 1.5 + 3.5).toFixed(1)),
+                    }
+                },
+                { upsert: true, new: true }
+            );
+            baseProductNodes.push(product);
             created++;
         }
-        console.log(`📦 Created ${created} products`);
+
+        // Multiply products to regional shops (Delhi/Mumbai)
+        for (let sIdx = 2; sIdx < shops.length; sIdx++) {
+            const currentShop = shops[sIdx];
+            for (const p of PRODUCTS) {
+                const regionalBarcode = p.barcode + '_' + sIdx;
+                await Product.findOneAndUpdate(
+                    { barcode: regionalBarcode, shopId: currentShop._id },
+                    {
+                        $set: {
+                            ...p,
+                            barcode: regionalBarcode,
+                            location: currentShop.location,
+                            isAvailable: true,
+                            embedding: []
+                        },
+                        $setOnInsert: {
+                            salesCount: Math.floor(Math.random() * 200),
+                            rating: parseFloat((Math.random() * 1.5 + 3.5).toFixed(1)),
+                        }
+                    },
+                    { upsert: true, new: true }
+                );
+                created++;
+            }
+        }
+        console.log(`✅ Stage 1 Complete: ${created} products live in catalog.`);
+
+        // Stage 2: AI Backfill (Slow Pass)
+        console.log('🧠 Starting Stage 2: AI Embedding Backfill (this will take a few minutes)...');
+        const uniqueBarcodes = [...new Set(PRODUCTS.map(p => p.barcode))];
+        const catalogEmbeddings = {};
+
+        for (const barcode of uniqueBarcodes) {
+            const p = PRODUCTS.find(prod => prod.barcode === barcode);
+            try {
+                const textToEmbed = `${p.name} ${p.category} ${p.description || ''}`.trim();
+                console.log(`   - Embedding [${barcode}]: ${p.name}`);
+                const embedding = await generateEmbeddingWithRetry(textToEmbed);
+                catalogEmbeddings[barcode] = embedding;
+
+                // Bulk update all instances of this product across shops
+                await Product.updateMany({ barcode: { $regex: new RegExp(`^${barcode}(_\\d+)?$`) } }, { embedding });
+
+                // Sync specific nodes to Neo4j (using one instance id per product type for simplicity)
+                const samples = await Product.find({ barcode: { $regex: new RegExp(`^${barcode}(_\\d+)?$`) } }).limit(1);
+                if (samples[0]) {
+                    await neo4jService.upsertProduct(samples[0]._id.toString(), p.name, p.category, embedding);
+                }
+
+                await delay(1200); // Respect Gemini Free Tier limits
+            } catch (e) {
+                console.warn(`   - Failed embedding for ${p.name}`);
+            }
+        }
+
+        console.log(`📦 Created ${created} products across all shops globally`);
 
         // Seed similar relationships in Neo4j by category
         try {
@@ -160,8 +285,12 @@ async function seed() {
 
         console.log('\n✅ SEED COMPLETE\n');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🛒 Buyer login:');
+        console.log('🛒 Buyer 1 (Near MG Road) login:');
         console.log('   Email:    aryan@buyer.com');
+        console.log('   Password: password123');
+        console.log('');
+        console.log('🛒 Buyer 2 (Middle of Shops) login:');
+        console.log('   Email:    sneha@buyer.com');
         console.log('   Password: password123');
         console.log('');
         console.log('🏪 Seller 1 login:');

@@ -133,14 +133,14 @@ Rules:
 // POST /api/ai/intent-search — semantic "I have a cold" → relevant products
 router.post('/intent-search', async (req, res) => {
     try {
-        const { query } = req.body;
+        const { query, lat, lng, nearbyOnly, shopId } = req.body;
         if (!query) return res.status(400).json({ success: false, message: 'Query required' });
 
         let keywords = [];
         let usedFallback = false;
 
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
             const searchPrompt = `You are a smart search assistant for a grocery/pharmacy/daily needs marketplace.
 Expand the following user query into specific product keywords to search for.
 Respond ONLY with a valid JSON array of strings (max 8 keywords), no markdown:
@@ -157,35 +157,59 @@ User query: "${query}"`;
             const jsonMatch = text.match(/\[[\s\S]*\]/);
             keywords = jsonMatch ? JSON.parse(jsonMatch[0]) : [query];
         } catch (aiErr) {
-            // Rate-limit or API error — fallback to splitting query words
             console.warn('Gemini intent-search fallback:', aiErr.message?.slice(0, 80));
             usedFallback = true;
             keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
             if (!keywords.length) keywords = [query];
         }
 
-        // ✅ Use semantic vector search for the overall query or keywords
-        const productMatchMap = new Map(); // productId → product
+        const productMatchMap = new Map();
 
-        // 1. Try vector search on the raw user query first to catch high-level semantics
+        // 1. Try vector search
         const queryVector = await generateEmbedding(query);
         if (queryVector) {
-            const semanticResults = await neo4jService.semanticSearch(queryVector, 8);
+            const semanticResults = await neo4jService.semanticSearch(queryVector, 100);
             const productIds = semanticResults.map(r => r.id);
-            const products = await Product.find({
-                _id: { $in: productIds },
-                isAvailable: true,
-                stock: { $gt: 0 }
-            }).populate('shopId', 'name location rating');
+
+            let queryObj = { _id: { $in: productIds }, isAvailable: true, stock: { $gt: 0 } };
+
+            // Apply filters
+            if (shopId) queryObj.shopId = shopId;
+            if (lat && lng && nearbyOnly === true) {
+                queryObj.location = {
+                    $near: {
+                        $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
+                        $maxDistance: 50000 // 50km for AI intent
+                    }
+                };
+            }
+
+            const products = await Product.find(queryObj).populate('shopId', 'name location rating');
 
             for (const p of products) {
-                productMatchMap.set(p._id.toString(), { product: p, matchedKeyword: 'Semantic Match', count: 5 }); // High weight for direct semantic match
+                productMatchMap.set(p._id.toString(), { product: p, matchedKeyword: 'Semantic Match', count: 5 });
             }
         }
 
-        // 2. Also search via expanded keywords (regex fallback/boost)
+        // 2. keyword boosts
         for (const kw of keywords) {
-            const products = await searchByKeyword(kw, 3);
+            let kwQuery = {
+                $or: [{ name: new RegExp(kw, 'i') }, { category: new RegExp(kw, 'i') }, { description: new RegExp(kw, 'i') }],
+                isAvailable: true,
+                stock: { $gt: 0 }
+            };
+
+            if (shopId) kwQuery.shopId = shopId;
+            if (lat && lng && nearbyOnly === true) {
+                kwQuery.location = {
+                    $near: {
+                        $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
+                        $maxDistance: 50000
+                    }
+                };
+            }
+
+            const products = await Product.find(kwQuery).populate('shopId', 'name location rating').limit(20);
             for (const p of products) {
                 const id = p._id.toString();
                 if (productMatchMap.has(id)) {
@@ -196,9 +220,9 @@ User query: "${query}"`;
             }
         }
 
-        // Sort by number of keyword matches (most relevant first), then by salesCount
         const results = Array.from(productMatchMap.values())
             .sort((a, b) => b.count - a.count || (b.product.salesCount || 0) - (a.product.salesCount || 0));
+
         res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback });
     } catch (err) {
         console.error('Critical intent search error:', err);
