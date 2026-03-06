@@ -2,6 +2,14 @@
 
 > An AI-powered marketplace connecting buyers and local sellers. Instead of item-by-item searching, simply describe what you need — the AI fills your cart automatically.
 
+**NOTE:** The platform is fully functional with all 4 stages (Foundation, Automator, Orchestrator, God Mode) complete, however some features need refinement according to the project demands and responsiveness.
+
+**Current Focus and Status:**
+* Figuring out best workflow and priority (Gemini/ Hugging Face/ Neo4j) to reduce response time for AI smart search and recipe agent. 
+* Trying to make the barcode inventory system more automated and user-friendly. 
+* Not have given much time to the UI/UX part (frontend), so it needs lot of improvement, design and animations.
+
+
 **Status: 🟢 Features Working**
 
 * Dual Login
@@ -18,7 +26,7 @@
 *   **Dynamic AI Vectors**: Automated Gemini embedding backfill for new and existing products.
 *   **Bulletproof AI Fallbacks**: 100% uptime architecture using Hugging Face `Qwen2.5-72B` and local Node.js `Cosine Similarity` when APIs/Databases fail.
 
-**NOTE:** The platform is fully functional with all 4 stages (Foundation, Automator, Orchestrator, God Mode) complete, however some features need refinement according to the project demands and responsiveness.
+
 ---
 
 ## 📸 Screenshots

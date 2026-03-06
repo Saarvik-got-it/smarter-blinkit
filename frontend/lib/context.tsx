@@ -95,8 +95,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('sb_cart', JSON.stringify(cart));
     }, [cart]);
 
+    let toastCounter = 0;
     const toast = useCallback((msg: string, type: 'success' | 'error' | 'info' = 'success') => {
-        const id = Date.now();
+        const id = Date.now() * 1000 + (toastCounter++ % 1000);
         setToasts(t => [...t, { id, msg, type }]);
         setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
     }, []);
