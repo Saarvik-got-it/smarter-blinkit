@@ -20,7 +20,7 @@ export default function CartSidebar() {
     const [cardReady, setCardReady] = useState(false);
     const [cardError, setCardError] = useState('');
 
-    // Initialize Stripe when entering payment step
+    // Initialize Stripe once (only when entering payment step)
     useEffect(() => {
         if (step === 'payment' && paymentMethod === 'card' && !stripe) {
             (async () => {
@@ -30,9 +30,11 @@ export default function CartSidebar() {
         }
     }, [step, paymentMethod, stripe]);
 
-    // Mount Stripe card element
+    // Mount/unmount Stripe card element using a ref to track lifecycle
+    const cardMountedRef = useRef(false);
+
     useEffect(() => {
-        if (stripe && step === 'payment' && paymentMethod === 'card' && cardMountRef.current && !cardElement) {
+        if (stripe && step === 'payment' && paymentMethod === 'card' && cardMountRef.current && !cardMountedRef.current) {
             const elements = stripe.elements({
                 fonts: [{ cssSrc: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap' }],
             });
@@ -53,27 +55,20 @@ export default function CartSidebar() {
             card.on('ready', () => setCardReady(true));
             card.on('change', (e) => setCardError(e.error?.message || ''));
             setCardElement(card);
+            cardMountedRef.current = true;
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stripe, step, paymentMethod]);
 
-        return () => {
-            // Cleanup when leaving payment step
-            if (step !== 'payment' && cardElement) {
-                cardElement.destroy();
-                setCardElement(null);
-                setCardReady(false);
-            }
-        };
-    }, [stripe, step, paymentMethod, cardElement]);
-
-    // Cleanup card element on unmount
+    // Cleanup: destroy card element when step leaves 'payment' or on unmount
     useEffect(() => {
-        return () => {
-            if (cardElement) {
-                cardElement.destroy();
-                setCardElement(null);
-            }
-        };
-    }, []);
+        if (step !== 'payment' && cardMountedRef.current && cardElement) {
+            try { cardElement.destroy(); } catch { /* already destroyed */ }
+            setCardElement(null);
+            setCardReady(false);
+            cardMountedRef.current = false;
+        }
+    }, [step, cardElement]);
 
     const handleDetectLocation = () => {
         if (!navigator.geolocation) {
@@ -129,7 +124,7 @@ export default function CartSidebar() {
             }
 
             // 1. Create PaymentIntent on backend
-            const { data: intentData } = await api.post('/payments/create-intent', { amount: cartTotal });
+            const { data: intentData } = await api.post('/payments/create-intent', { amount: grandTotal });
 
             if (intentData.mode === 'mock') {
                 // Mock fallback if Stripe is not configured on backend
