@@ -7,7 +7,8 @@ const getDriver = () => {
     if (!driver) {
         driver = neo4j.driver(
             process.env.NEO4J_URI,
-            neo4j.auth.basic(process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD)
+            neo4j.auth.basic(process.env.NEO4J_USERNAME, process.env.NEO4J_PASSWORD),
+            { connectionTimeout: 3000, maxConnectionLifetime: 30000 }
         );
     }
     return driver;
@@ -15,7 +16,7 @@ const getDriver = () => {
 
 // Create or update a product node with optional vector embedding
 async function upsertProduct(productId, name, category, embedding = null) {
-    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    const session = getDriver().session();
     try {
         if (embedding && embedding.length > 0) {
             await session.run(
@@ -40,7 +41,7 @@ async function upsertProduct(productId, name, category, embedding = null) {
 
 // Initialize Vector Index for Semantic Search (3072 dimensions for gemini-embedding-001)
 async function initVectorIndex() {
-    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    const session = getDriver().session();
     try {
         // Drop index if it exists in case we change dimension sizes (ignoring error if it doesn't)
         try { await session.run(`DROP INDEX product_embeddings IF EXISTS`); } catch (e) { }
@@ -63,9 +64,44 @@ async function initVectorIndex() {
     }
 }
 
+// Fallback: Compute cosine similarity in memory if Neo4j is deeply asleep or unreachable
+function cosineSimilarity(vecA, vecB) {
+    if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
+    let dotProduct = 0, normA = 0, normB = 0;
+    for (let i = 0; i < vecA.length; i++) {
+        dotProduct += vecA[i] * vecB[i];
+        normA += vecA[i] * vecA[i];
+        normB += vecB[i] * vecB[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+async function fallbackSemanticSearch(queryVector, limit = 5, minScore = 0.55) {
+    try {
+        const Product = require('../models/Product');
+        const products = await Product.find({ 'embedding.0': { $exists: true } }).select('_id name embedding').lean();
+        
+        let results = [];
+        for (const p of products) {
+            if (!p.embedding || p.embedding.length === 0) continue;
+            const score = cosineSimilarity(queryVector, p.embedding);
+            if (score >= minScore) {
+                results.push({ id: p._id.toString(), name: p.name, score });
+            }
+        }
+        
+        results.sort((a, b) => b.score - a.score);
+        return results.slice(0, limit);
+    } catch (e) {
+        console.error('Fallback semantic search failed:', e.message);
+        return [];
+    }
+}
+
 // Perform Semantic Search via nearest neighbors (Cosine Similarity)
 async function semanticSearch(queryVector, limit = 5, minScore = 0.55) {
-    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    const session = getDriver().session();
     try {
         const result = await session.run(
             `CALL db.index.vector.queryNodes('product_embeddings', $limit, $queryVector)
@@ -82,8 +118,8 @@ async function semanticSearch(queryVector, limit = 5, minScore = 0.55) {
             score: r.get('score'),
         }));
     } catch (err) {
-        console.error('Neo4j semanticSearch error:', err.message);
-        return [];
+        console.warn('Neo4j semanticSearch unavailable. Falling back to in-memory cosine similarity:', err.message);
+        return await fallbackSemanticSearch(queryVector, limit, minScore);
     } finally {
         await session.close();
     }
@@ -92,7 +128,7 @@ async function semanticSearch(queryVector, limit = 5, minScore = 0.55) {
 // Record BOUGHT_WITH relationships from a single order
 async function recordBoughtTogether(productIds) {
     if (productIds.length < 2) return;
-    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    const session = getDriver().session();
     try {
         // Ensure all product nodes exist
         for (const id of productIds) {
@@ -119,7 +155,7 @@ async function recordBoughtTogether(productIds) {
 
 // Create SIMILAR_TO relationship
 async function createSimilarRelationship(productIdA, productIdB) {
-    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    const session = getDriver().session();
     try {
         await session.run(
             `MATCH (a:Product {id: $a}), (b:Product {id: $b})
@@ -135,7 +171,7 @@ async function createSimilarRelationship(productIdA, productIdB) {
 
 // Get suggestions for a product (SIMILAR_TO + BOUGHT_WITH)
 async function getSuggestions(productId) {
-    const session = getDriver().session({ database: process.env.NEO4J_DATABASE });
+    const session = getDriver().session();
     try {
         const result = await session.run(
             `MATCH (p:Product {id: $productId})-[r:BOUGHT_WITH|SIMILAR_TO]-(suggested:Product)

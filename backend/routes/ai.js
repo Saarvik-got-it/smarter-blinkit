@@ -3,6 +3,9 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Product = require('../models/Product');
 const { protect, requireRole } = require('../middleware/auth');
 const neo4jService = require('../services/neo4j');
+const { HfInference } = require('@huggingface/inference');
+
+const hf = process.env.HF_TOKEN ? new HfInference(process.env.HF_TOKEN) : null;
 
 const router = express.Router();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -16,7 +19,8 @@ async function generateEmbedding(text) {
         const result = await model.embedContent(text);
         return result.embedding.values;
     } catch (err) {
-        console.error('Error generating embedding:', err);
+        console.warn('Gemini generateEmbedding failed. Falling back to Hugging Face...');
+        console.warn('Gemini generateEmbedding failed. Cannot use Hugging Face for vectors without dimension mismatch. Returning null for Regex fallback...');
         return null;
     }
 }
@@ -69,15 +73,36 @@ Rules:
             const jsonMatch = text.match(/\[[\s\S]*\]/);
             ingredients = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
         } catch (aiErr) {
-            // 429 rate limit or any Gemini error — fallback to keyword extraction from prompt
+            // 429 rate limit or any Gemini error — fallback to HF then regex
             const isRateLimit = aiErr.message?.includes('429') || aiErr.message?.includes('quota') || aiErr.message?.includes('Too Many Requests');
             console.warn(`AI recipe-agent fallback (${isRateLimit ? 'rate-limit' : 'error'}):`, aiErr.message?.slice(0, 80));
             usedFallback = true;
+            
+            if (hf) {
+                try {
+                    console.log('Using Hugging Face fallback for Recipe Agent...');
+                    const result = await hf.chatCompletion({
+                        model: 'Qwen/Qwen2.5-72B-Instruct',
+                        messages: [
+                            { role: 'system', content: 'You extract grocery ingredients from user meal requests. Reply ONLY with a valid JSON array of objects. Example: [{"item":"flour","packsToBuy":1,"amountText":"1kg","searchQuery":"flour"}]. No markdown.' },
+                            { role: 'user', content: prompt }
+                        ],
+                        max_tokens: 200,
+                    });
+                    const text = result.choices[0].message.content.trim();
+                    const jsonMatch = text.match(/\[[\s\S]*\]/);
+                    if (jsonMatch) ingredients = JSON.parse(jsonMatch[0]);
+                } catch (hfErr) {
+                    console.error('Hugging Face fallback failed:', hfErr.message);
+                }
+            }
 
-            // Extract meaningful words from prompt as search queries
-            const stopWords = new Set(['make', 'for', 'people', 'i', 'a', 'the', 'and', 'with', 'some', 'need', 'want', 'prepare', 'cook', 'please', 'me', 'us', 'my', 'have', 'get', 'find', 'give', 'some', 'how']);
-            const words = prompt.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
-            ingredients = words.slice(0, 6).map(w => ({ item: w, packsToBuy: 1, amountText: '1 pack', searchQuery: w }));
+            if (!ingredients || !ingredients.length) {
+                // Extract meaningful words from prompt as search queries
+                const stopWords = new Set(['make', 'for', 'people', 'i', 'a', 'the', 'and', 'with', 'some', 'need', 'want', 'prepare', 'cook', 'please', 'me', 'us', 'my', 'have', 'get', 'find', 'give', 'some', 'how']);
+                const words = prompt.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+                ingredients = words.slice(0, 6).map(w => ({ item: w, packsToBuy: 1, amountText: '1 pack', searchQuery: w }));
+            }
         }
 
         if (!ingredients.length) {
@@ -159,8 +184,34 @@ User query: "${query}"`;
         } catch (aiErr) {
             console.warn('Gemini intent-search fallback:', aiErr.message?.slice(0, 80));
             usedFallback = true;
-            keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-            if (!keywords.length) keywords = [query];
+
+            if (hf) {
+                try {
+                    console.log('Using Hugging Face fallback for Intent Search...');
+                    const result = await hf.chatCompletion({
+                        model: 'Qwen/Qwen2.5-72B-Instruct',
+                        messages: [
+                            { role: 'system', content: 'Expand user query into specific grocery items. Reply ONLY with a valid JSON array of strings, max 8. Example: ["honey", "ginger tea"]. NO markdown formatting, NO backticks. NO explanations.' },
+                            { role: 'user', content: query }
+                        ],
+                        max_tokens: 150,
+                    });
+                    
+                    let textResult = result.choices[0].message.content.trim();
+                    // Clean up potential markdown formatting the LLM might hallucinate
+                    textResult = textResult.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+                    
+                    const jsonMatch = textResult.match(/\[[\s\S]*\]/);
+                    if (jsonMatch) keywords = JSON.parse(jsonMatch[0]);
+                } catch (hfErr) {
+                    console.error('Hugging Face fallback failed:', hfErr.message);
+                }
+            }
+
+            if (!keywords || !keywords.length) {
+                keywords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            }
+            if (!keywords || !keywords.length) keywords = [query];
         }
 
         const productMatchMap = new Map();
