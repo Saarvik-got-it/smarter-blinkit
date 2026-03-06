@@ -17,7 +17,7 @@
 *   **Multi-City Marketplace**: Pre-seeded shops and buyers across Bengaluru, Mumbai, and New Delhi.
 *   **Dynamic AI Vectors**: Automated Gemini embedding backfill for new and existing products.
 
-**NOTE:** The platform is fully functional with all 4 stages (Foundation, Automator, Orchestrator, God Mode) complete and verified.
+**NOTE:** The platform is fully functional with all 4 stages (Foundation, Automator, Orchestrator, God Mode) complete, however some features need refinement according to the project demands and responsiveness.
 ---
 
 ## 📸 Screenshots

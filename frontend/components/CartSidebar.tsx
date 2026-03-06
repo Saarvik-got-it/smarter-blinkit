@@ -14,11 +14,16 @@ export default function CartSidebar() {
     const [coords, setCoords] = useState<[number, number] | null>(null);
     const [locating, setLocating] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
+    const [paying, setPaying] = useState(false);
     const [stripe, setStripe] = useState<Stripe | null>(null);
     const [cardElement, setCardElement] = useState<StripeCardElement | null>(null);
     const cardMountRef = useRef<HTMLDivElement>(null);
     const [cardReady, setCardReady] = useState(false);
     const [cardError, setCardError] = useState('');
+
+    // Refs to hold the latest card element (avoids stale closures in async handlers)
+    const cardElementRef = useRef<StripeCardElement | null>(null);
+    const cardMountedRef = useRef(false);
 
     // Initialize Stripe once (only when entering payment step)
     useEffect(() => {
@@ -30,9 +35,7 @@ export default function CartSidebar() {
         }
     }, [step, paymentMethod, stripe]);
 
-    // Mount/unmount Stripe card element using a ref to track lifecycle
-    const cardMountedRef = useRef(false);
-
+    // Mount Stripe card element
     useEffect(() => {
         if (stripe && step === 'payment' && paymentMethod === 'card' && cardMountRef.current && !cardMountedRef.current) {
             const elements = stripe.elements({
@@ -55,20 +58,22 @@ export default function CartSidebar() {
             card.on('ready', () => setCardReady(true));
             card.on('change', (e) => setCardError(e.error?.message || ''));
             setCardElement(card);
+            cardElementRef.current = card;       // Keep ref in sync
             cardMountedRef.current = true;
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stripe, step, paymentMethod]);
 
-    // Cleanup: destroy card element when step leaves 'payment' or on unmount
+    // Cleanup: destroy card element ONLY when going back to cart/location
     useEffect(() => {
-        if (step !== 'payment' && cardMountedRef.current && cardElement) {
-            try { cardElement.destroy(); } catch { /* already destroyed */ }
+        if (['cart', 'location'].includes(step) && cardMountedRef.current && cardElementRef.current) {
+            try { cardElementRef.current.destroy(); } catch { /* already destroyed */ }
             setCardElement(null);
+            cardElementRef.current = null;
             setCardReady(false);
             cardMountedRef.current = false;
         }
-    }, [step, cardElement]);
+    }, [step]);
 
     const handleDetectLocation = () => {
         if (!navigator.geolocation) {
@@ -97,11 +102,12 @@ export default function CartSidebar() {
 
     const handleCheckout = async () => {
         if (!user) return;
-        setStep('processing');
+        setPaying(true);
 
         try {
             if (paymentMethod === 'cod') {
                 // ── Cash on Delivery — No Stripe needed ──
+                setStep('processing');
                 const codPaymentId = `cod_${Date.now()}`;
                 await api.post('/orders', {
                     items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
@@ -111,23 +117,29 @@ export default function CartSidebar() {
                     paymentMode: 'cod',
                 });
                 clearCart();
+                setPaying(false);
                 setStep('success');
                 toast('Order placed successfully! 🎉 Pay on delivery.', 'success');
                 return;
             }
 
             // ── Stripe Card Payment ──
-            if (!stripe || !cardElement) {
+            // Read from ref (not state) to avoid stale closures
+            const currentCard = cardElementRef.current;
+            if (!stripe || !currentCard) {
+                console.error('[Stripe] Missing:', { stripe: !!stripe, cardElement: !!currentCard });
                 toast('Stripe is not ready. Please try again.', 'error');
-                setStep('payment');
+                setPaying(false);
                 return;
             }
 
             // 1. Create PaymentIntent on backend
             const { data: intentData } = await api.post('/payments/create-intent', { amount: grandTotal });
+            console.log('[Stripe] PaymentIntent created:', intentData.mode, intentData.paymentIntentId);
 
             if (intentData.mode === 'mock') {
                 // Mock fallback if Stripe is not configured on backend
+                setStep('processing');
                 await api.post('/orders', {
                     items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
                     deliveryAddress: address,
@@ -136,24 +148,30 @@ export default function CartSidebar() {
                     paymentMode: 'mock',
                 });
                 clearCart();
+                setPaying(false);
                 setStep('success');
                 toast('Order placed successfully! 🎉', 'success');
                 return;
             }
 
             // 2. Confirm the card payment with Stripe.js
+            // CRITICAL: step stays as 'payment' here so the card element stays mounted in DOM
+            console.log('[Stripe] Confirming payment with card element...');
             const { error, paymentIntent } = await stripe.confirmCardPayment(intentData.clientSecret, {
-                payment_method: { card: cardElement },
+                payment_method: { card: currentCard },
             });
 
             if (error) {
+                console.error('[Stripe] confirmCardPayment error:', error);
                 toast(error.message || 'Payment failed', 'error');
-                setStep('payment');
+                setPaying(false);
                 return;
             }
 
+            console.log('[Stripe] Payment confirmed:', paymentIntent?.status);
             if (paymentIntent?.status === 'succeeded') {
-                // 3. Verify on backend and create order
+                // 3. Card confirmed! Now safe to switch step away from 'payment'
+                setStep('processing');
                 await api.post('/payments/verify', { paymentIntentId: paymentIntent.id });
                 await api.post('/orders', {
                     items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
@@ -163,14 +181,18 @@ export default function CartSidebar() {
                     paymentMode: 'stripe',
                 });
                 clearCart();
+                setPaying(false);
                 setStep('success');
                 toast('Payment successful! Order placed! 🎉💳', 'success');
             } else {
-                toast('Payment processing not completed. Please try again.', 'error');
-                setStep('payment');
+                toast(`Payment status: ${paymentIntent?.status}. Please try again.`, 'error');
+                setPaying(false);
             }
         } catch (err: any) {
-            toast(err?.response?.data?.message || 'Checkout failed', 'error');
+            console.error('[Checkout] Full error:', err);
+            const msg = err?.response?.data?.message || err?.message || 'Checkout failed';
+            toast(msg, 'error');
+            setPaying(false);
             setStep('payment');
         }
     };
@@ -366,14 +388,17 @@ export default function CartSidebar() {
                         </div>
 
                         <div style={{ marginTop: 'auto', display: 'flex', gap: '10px' }}>
-                            <button className="btn btn-secondary" onClick={() => { setStep('location'); }} style={{ flex: 1 }}>Back</button>
+                            <button className="btn btn-secondary" onClick={() => { setStep('location'); }} style={{ flex: 1 }} disabled={paying}>Back</button>
                             <button
                                 className="btn btn-primary"
                                 onClick={handleCheckout}
-                                disabled={paymentMethod === 'card' && (!cardReady || !!cardError)}
+                                disabled={paying || (paymentMethod === 'card' && (!cardReady || !!cardError))}
                                 style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                             >
-                                {paymentMethod === 'cod' ? '🛵 Place Order (COD)' : `💳 Pay ₹${grandTotal.toFixed(2)}`}
+                                {paying
+                                    ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Processing...</>
+                                    : paymentMethod === 'cod' ? '🛵 Place Order (COD)' : `💳 Pay ₹${grandTotal.toFixed(2)}`
+                                }
                             </button>
                         </div>
                     </div>
