@@ -34,17 +34,18 @@ export default function ShopPage() {
         try {
             const lat = user?.location?.coordinates?.[1];
             const lng = user?.location?.coordinates?.[0];
+            // When a specific shop is selected, bypass the nearby filter — distance doesn't matter
+            const effectiveNearby = shop ? false : nearby;
 
             if (searchMode === 'intent' && q) {
-                const { data } = await api.post('/ai/intent-search', { query: q, lat, lng, nearbyOnly: nearby });
+                const { data } = await api.post('/ai/intent-search', { query: q, lat, lng, nearbyOnly: effectiveNearby, shopId: shop || undefined });
                 let intentResults = data.results || [];
-                // Frontend-side shop/category filtering for AI results
-                if (shop) intentResults = intentResults.filter((r: any) => r.product?.shopId?._id === shop);
+                // Frontend-side category filtering for AI results
                 if (cat) intentResults = intentResults.filter((r: any) => r.product?.category === cat);
                 setProducts(intentResults.map((r: any) => ({ ...r.product, distance: r.product.distance })));
                 setExpandedKeywords(data.expandedKeywords || []);
             } else {
-                const { data } = await api.get('/products/search', { params: { q, category: cat, shopId: shop, limit: 40, lat, lng, nearbyOnly: nearby } });
+                const { data } = await api.get('/products/search', { params: { q, category: cat, shopId: shop, limit: 500, lat, lng, nearbyOnly: effectiveNearby } });
                 setProducts(data.products || []);
             }
         } catch { } finally { setLoading(false); }
@@ -184,10 +185,10 @@ export default function ShopPage() {
                                 const sid = p.shopId?._id || 'local';
                                 if (!shopsMap[sid]) {
                                     shopsMap[sid] = {
-                                        shop: {
+                                        shop: p.shopId ? {
                                             ...p.shopId,
-                                            distance: p.distance // Attach distance from product to shop record
-                                        } || { name: 'Local Shop', distance: 0 },
+                                            distance: p.distance
+                                        } : { name: 'Local Shop', distance: 0 },
                                         products: []
                                     };
                                 }

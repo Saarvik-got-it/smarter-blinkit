@@ -25,6 +25,10 @@ export default function SellerDashboard() {
     const scannerRef = useRef<HTMLDivElement>(null);
     const [shopSetup, setShopSetup] = useState({ name: '', address: '', phone: '' });
     const [creatingShop, setCreatingShop] = useState(false);
+    const [catDropdownOpen, setCatDropdownOpen] = useState(false);
+
+    // Derive unique categories from the shop's current inventory
+    const shopCategories: string[] = [...new Set(products.map((p: any) => p.category).filter(Boolean))] as string[];
 
     useEffect(() => {
         // Fetch shop separately so a 404 (no shop yet) doesn't crash the whole dashboard
@@ -368,7 +372,77 @@ export default function SellerDashboard() {
                                             <div className="form-group"><label className="form-label">Product Name*</label><input className="form-input" placeholder="e.g. Wheat Flour" value={newProduct.name} onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))} required /></div>
                                             <div className="form-group"><label className="form-label">Price (₹)*</label><input className="form-input" type="number" min="0" step="0.01" placeholder="49.99" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} required /></div>
                                             <div className="form-group"><label className="form-label">Stock*</label><input className="form-input" type="number" min="0" placeholder="100" value={newProduct.stock} onChange={e => setNewProduct(p => ({ ...p, stock: e.target.value }))} required /></div>
-                                            <div className="form-group"><label className="form-label">Category*</label><input className="form-input" placeholder="Groceries, Dairy..." value={newProduct.category} onChange={e => setNewProduct(p => ({ ...p, category: e.target.value }))} required /></div>
+                                            <div className="form-group" style={{ position: 'relative' }}>
+                                                <label className="form-label">Category*</label>
+                                                <input
+                                                    className="form-input"
+                                                    placeholder="Select or type a category..."
+                                                    value={newProduct.category}
+                                                    onChange={e => {
+                                                        setNewProduct(p => ({ ...p, category: e.target.value }));
+                                                        setCatDropdownOpen(true);
+                                                    }}
+                                                    onFocus={() => setCatDropdownOpen(true)}
+                                                    onBlur={() => setTimeout(() => setCatDropdownOpen(false), 200)}
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Escape') setCatDropdownOpen(false);
+                                                        if (e.key === 'Enter' && catDropdownOpen) {
+                                                            e.preventDefault();
+                                                            const filtered = shopCategories.filter(c => c.toLowerCase().includes(newProduct.category.toLowerCase()));
+                                                            if (filtered.length > 0) {
+                                                                setNewProduct(p => ({ ...p, category: filtered[0] }));
+                                                            }
+                                                            setCatDropdownOpen(false);
+                                                        }
+                                                    }}
+                                                    required
+                                                    autoComplete="off"
+                                                />
+                                                {catDropdownOpen && (
+                                                    <div style={{
+                                                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                                                        background: 'var(--bg-card)', border: '1px solid var(--border)',
+                                                        borderRadius: 'var(--radius-md)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                                                        maxHeight: '200px', overflowY: 'auto', marginTop: '4px'
+                                                    }}>
+                                                        {shopCategories
+                                                            .filter(c => !newProduct.category || c.toLowerCase().includes(newProduct.category.toLowerCase()))
+                                                            .map(c => (
+                                                                <div key={c}
+                                                                    onMouseDown={() => { setNewProduct(p => ({ ...p, category: c })); setCatDropdownOpen(false); }}
+                                                                    style={{
+                                                                        padding: '10px 14px', cursor: 'pointer', fontSize: '0.9rem',
+                                                                        borderBottom: '1px solid var(--border)',
+                                                                        transition: 'background 0.15s'
+                                                                    }}
+                                                                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-subtle)')}
+                                                                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                                                >
+                                                                    {c}
+                                                                </div>
+                                                            ))
+                                                        }
+                                                        {newProduct.category.trim() && !shopCategories.some(c => c.toLowerCase() === newProduct.category.toLowerCase()) && (
+                                                            <div
+                                                                onMouseDown={() => { setCatDropdownOpen(false); }}
+                                                                style={{
+                                                                    padding: '10px 14px', cursor: 'pointer', fontSize: '0.9rem',
+                                                                    color: 'var(--accent)', fontWeight: 600,
+                                                                    background: 'var(--accent-subtle)',
+                                                                    borderTop: '2px solid var(--accent)'
+                                                                }}
+                                                            >
+                                                                + Add &ldquo;{newProduct.category.trim()}&rdquo; as new category
+                                                            </div>
+                                                        )}
+                                                        {!newProduct.category.trim() && shopCategories.length === 0 && (
+                                                            <div style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                                                No categories yet — type to create one
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                             <div className="form-group"><label className="form-label">Unit</label>
                                                 <select className="form-select" value={newProduct.unit} onChange={e => setNewProduct(p => ({ ...p, unit: e.target.value }))}>
                                                     {['piece', 'kg', 'g', 'litre', 'ml', 'pack', 'dozen'].map(u => <option key={u}>{u}</option>)}

@@ -13,6 +13,7 @@
     "dependencies": {
         "@huggingface/inference": "^4.13.14",
         "axios": "^1.13.6",
-        "exceljs": "^4.4.0"
+        "exceljs": "^4.4.0",
+        "stripe": "^20.4.0"
     }
 }

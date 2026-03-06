@@ -28,7 +28,7 @@ function getDistance(coords1, coords2) {
 // POST /api/orders — place an order
 router.post('/', protect, requireRole('buyer'), async (req, res) => {
     try {
-        const { items, deliveryAddress, deliveryLocation, paymentId, notes } = req.body;
+        const { items, deliveryAddress, deliveryLocation, paymentId, paymentMode, notes } = req.body;
         if (!items?.length) return res.status(400).json({ success: false, message: 'No items in cart' });
 
         // ── Local First Cart Splitting Logic ──
@@ -109,8 +109,8 @@ router.post('/', protect, requireRole('buyer'), async (req, res) => {
             deliveryLocation,
             optimizedRoute,
             paymentId: paymentId || `mock_${Date.now()}`,
-            paymentStatus: 'paid',
-            paymentMode: 'mock',
+            paymentStatus: paymentMode === 'cod' ? 'pending' : 'paid',
+            paymentMode: paymentMode || 'mock',
             status: 'confirmed',
             notes,
             estimatedDelivery: new Date(Date.now() + 30 * 60 * 1000),

@@ -1,4 +1,4 @@
-﻿# Smarter BlinkIt 🛒⚡
+# Smarter BlinkIt 🛒⚡
 
 > An AI-powered marketplace connecting buyers and local sellers. Instead of item-by-item searching, simply describe what you need — the AI fills your cart automatically.
 
@@ -56,7 +56,7 @@ Smarter BlinkIt is a full-stack web application built around the concept of an *
 | **Embeddings** | Google Gemini `gemini-embedding-001` (3072-dimensional) |
 | **Face Recognition** | face-api.js (browser-side, TensorFlow.js models) |
 | **Barcode Scanning** | `@zxing/browser` (ZXing — cross-platform) |
-| **Payments** | Mock payment flow (Razorpay-ready architecture) |
+| **Payments** | Stripe API (Test Mode) + Cash on Delivery |
 | **Real-time** | Socket.io (live storeboard events) |
 | **Maps** | Leaflet.js + Leaflet.heat |
 
@@ -72,6 +72,7 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 4.  **OSRM (Open Source Routing Machine)**: Solves the Vehicle Routing Problem (VRP) to calculate optimized multi-stop delivery routes between shops and the buyer.
 5.  **Indian Postal Pin Code API (`api.postalpincode.in`)**: Automatically maps 6-digit PIN codes to their respective Districts/Cities and States during registration.
 6.  **Hugging Face (Inference Fallback)**: Used as a secondary layer for semantic similarity if Gemini quotas are exceeded.
+7.  **Stripe API (Test Mode)**: Handles real card payments via Stripe PaymentIntents. Uses `@stripe/stripe-js` (frontend) and `stripe` Node SDK (backend) for a full PCI-compliant checkout flow.
 
 
 ---
@@ -92,12 +93,14 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 - **AI Redundancy**: Complete fallback protocols for both Intent and Recipe agents, bypassing Gemini rate limit errors invisibly.
 
 ### Stage 3 — Orchestrator ✅
-- **Advanced Checkout Workflow**: Multi-stage Payment Selection UI (CoD, Mock UPI, Mock Cards) instead of a 1-click buy button.
+- **Stripe Payment Integration**: Real card payments via Stripe test mode with inline Card Element. Supports COD fallback. Order summary shows subtotal, delivery fee (free above ₹500), and grand total.
 - **Location Auto-Detect**: Integrates Nominatim Reverse Geocoding enabling auto-detecting user checkout delivery address.
 - **Live Storeboard**: Real-time Socket.io dashboard showing top-selling products and top-rated shops.
 - **Smart Cart Splitting**: Multi-shop orders auto-split per shop.
 - **Product Detail Page**: Full product info with quantity selector and Neo4j-powered Smart Suggestions.
-- **Live Dynamic Filters**: Categories and Shops are fetched live from the database. Any new shop or category added by a seller is instantly reflected for all buyers. Shop filter ensures you can browse specific catalogs effortlessly.
+- **Live Dynamic Filters**: Categories and Shops are fetched live from the database. Any new shop or category added by a seller is instantly reflected for all buyers.
+- **Smart Shop Filter**: Selecting a specific shop overrides the "Nearby Only" proximity constraint, showing all products from that shop regardless of distance.
+- **Smart Category Combobox**: Seller's category input features a searchable dropdown with live filtering and inline "+ Add new category" option.
 
 ### Bonus / God Mode ✅
 - **Money Map**: Leaflet.js heatmap showing order density and intensity based on live MongoDB transactions.
@@ -206,12 +209,16 @@ NEO4J_PASSWORD=...
 NEO4J_DATABASE=...
 JWT_SECRET=your_secret
 PORT=5000
+PAYMENT_MODE=stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
 ```
 
 Create `frontend/.env.local` with:
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:5000/api
 NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 ```
 
 ---
@@ -233,6 +240,9 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 | 3 | Smart Cart Splitting | ✅ Done |
 | 3 | Live Storeboard (Socket.io) | ✅ Done |
 | 3 | Product Detail + Neo4j Suggestions | ✅ Done |
+| 3 | Stripe Payment Integration (Test Mode) | ✅ Done |
+| 3 | Smart Shop Filter Override | ✅ Done |
+| 3 | Smart Category Combobox | ✅ Done |
 | Bonus | Money Map (Leaflet.js + OSM) | ✅ Done |
 | Bonus | Smart Product Pairing (Hugging Face + Neo4j) | ✅ Done |
 | Bonus | AI Intent Rate-limit Fallback | ✅ Done |
@@ -250,6 +260,8 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 | GET | `/api/products/:id/suggestions` | Neo4j similar products |
 | POST | `/api/products/barcode/lookup` | Barcode → product |
 | POST | `/api/orders` | Place order (with cart splitting) |
+| POST | `/api/payments/create-intent` | Create Stripe PaymentIntent (or mock fallback) |
+| POST | `/api/payments/verify` | Verify Stripe PaymentIntent status |
 | POST | `/api/ai/recipe-agent` | Gemini recipe → cart items |
 | POST | `/api/ai/intent-search` | Semantic query expansion |
 | GET | `/api/shops/nearby?lat=&lng=` | Geo-sorted shops |
@@ -264,4 +276,4 @@ NEXT_PUBLIC_SOCKET_URL=http://localhost:5000
 
 ---
 
-*Last updated: All 4 stages complete — March 2026*
+*Last updated: Stripe Integration + Smart Filters — March 2026*
