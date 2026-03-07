@@ -108,14 +108,22 @@ router.post('/', protect, requireRole('seller'), async (req, res) => {
         const existing = await Shop.findOne({ ownerId: req.user._id });
         if (existing) return res.status(409).json({ success: false, message: 'You already have a shop. Use PUT /api/shops/my to update it.' });
 
-        const { name, address, phone } = req.body;
+        const { name, address, phone, city, state, pincode, location } = req.body;
         if (!name) return res.status(400).json({ success: false, message: 'Shop name is required' });
 
         const shop = await Shop.create({
             name,
             ownerId: req.user._id,
             phone: phone || '',
-            location: { type: 'Point', coordinates: [0, 0], address: address || '' },
+            location: {
+                type: 'Point',
+                coordinates: location?.coordinates || [0, 0],
+                address: address || location?.address || '',
+                city: city || '',
+                state: state || '',
+                pincode: pincode || '',
+                country: 'India'
+            },
         });
         res.status(201).json({ success: true, shop });
     } catch (err) {
@@ -127,13 +135,21 @@ router.post('/', protect, requireRole('seller'), async (req, res) => {
 // PUT /api/shops/my — update seller's shop
 router.put('/my', protect, requireRole('seller'), async (req, res) => {
     try {
-        const { name, phone } = req.body;
+        const { name, phone, city, state, pincode, location } = req.body;
         const address = req.body['location.address'] ?? req.body.address;
 
         const updateFields = {};
         if (name) updateFields.name = name;
         if (phone !== undefined) updateFields.phone = phone;
-        if (address !== undefined) updateFields['location.address'] = address;
+        
+        if (location) {
+            updateFields.location = location;
+        } else {
+            if (address !== undefined) updateFields['location.address'] = address;
+            if (city !== undefined) updateFields['location.city'] = city;
+            if (state !== undefined) updateFields['location.state'] = state;
+            if (pincode !== undefined) updateFields['location.pincode'] = pincode;
+        }
 
         const shop = await Shop.findOneAndUpdate(
             { ownerId: req.user._id },
@@ -141,6 +157,16 @@ router.put('/my', protect, requireRole('seller'), async (req, res) => {
             { new: true, runValidators: false }
         );
         if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
+
+        // CRITICAL CASCADE: If the shop moved, instantly sync the new coordinates 
+        // down to all of its existing products so $geoNear queries find them.
+        if (shop.location && shop.location.coordinates) {
+            await Product.updateMany(
+                { shopId: shop._id },
+                { $set: { location: shop.location } }
+            );
+        }
+
         res.json({ success: true, shop });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });

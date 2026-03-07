@@ -18,13 +18,16 @@ export default function SellerDashboard() {
     const [orders, setOrders] = useState<any[]>([]);
     const [tab, setTab] = useState<'overview' | 'inventory' | 'orders' | 'barcode' | 'settings' | 'storeboard'>('overview');
     const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '', category: '', unit: 'piece', weight: '', barcode: '', image: '', description: '', expiryDate: '' });
-    const [shopEdit, setShopEdit] = useState({ name: '', address: '', phone: '' });
+    const [shopEdit, setShopEdit] = useState<any>({ name: '', address: '', phone: '', city: '', state: '', pincode: '', location: null });
     const [savingShop, setSavingShop] = useState(false);
+    const [editingLocation, setEditingLocation] = useState({ loadingLoc: false, loadingPin: false });
     const [loading, setLoading] = useState(true);
     const [scanning, setScanning] = useState(false);
     const scannerRef = useRef<HTMLDivElement>(null);
-    const [shopSetup, setShopSetup] = useState({ name: '', address: '', phone: '' });
+    const [shopSetup, setShopSetup] = useState<any>({ name: '', address: '', phone: '', city: '', state: '', pincode: '', country: 'India', location: null });
     const [creatingShop, setCreatingShop] = useState(false);
+    const [loadingLocation, setLoadingLocation] = useState(false);
+    const [loadingPincode, setLoadingPincode] = useState(false);
     const [catDropdownOpen, setCatDropdownOpen] = useState(false);
 
     // State for animated custom modal prompt when scanning dupes
@@ -37,8 +40,36 @@ export default function SellerDashboard() {
         // Fetch shop separately so a 404 (no shop yet) doesn't crash the whole dashboard
         api.get('/shops/my')
             .then(r => {
-                setShop(r.data.shop);
-                setShopEdit({ name: r.data.shop.name, address: r.data.shop.location?.address || '', phone: r.data.shop.phone || '' });
+                const s = r.data.shop;
+                setShop(s);
+                let addr = s.location?.address || '';
+                let cty = s.location?.city || '';
+                let st = s.location?.state || '';
+                let pin = s.location?.pincode || '';
+                
+                // Backwards compat for monolithic strings
+                if (addr && (!cty || !st || !pin)) {
+                    const parts = addr.split(',').map((ss: string) => ss.trim()).filter(Boolean);
+                    if (parts.length >= 3) {
+                        const pinIndex = parts.findIndex((p: string) => /^\d{6}$/.test(p));
+                        if (pinIndex !== -1) {
+                            if (!pin) pin = parts[pinIndex];
+                            if (!st && pinIndex >= 1) st = parts[pinIndex - 1];
+                            if (!cty && pinIndex >= 2) cty = parts[pinIndex - 2];
+                            addr = parts.slice(0, pinIndex - 2).join(', ');
+                        }
+                    }
+                }
+                
+                setShopEdit({ 
+                    name: s.name, 
+                    address: addr, 
+                    phone: s.phone || '',
+                    city: cty,
+                    state: st,
+                    pincode: pin,
+                    location: s.location?.coordinates?.[0] !== 0 ? s.location : null
+                });
             })
             .catch(() => { /* shop not created yet — handled by render below */ });
         api.get('/orders/shop').then(r => setOrders(r.data.orders || [])).catch(() => { });
@@ -88,13 +119,102 @@ export default function SellerDashboard() {
         toast(`Generated demo barcode: ${code}`, 'success');
     };
 
+    const handleGetLocation = () => {
+        if (!navigator.geolocation) {
+            toast('Geolocation is not supported by your browser', 'error');
+            return;
+        }
+        setLoadingLocation(true);
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude: lat, longitude: lon } = position.coords;
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`);
+                    const data = await res.json();
+                    if (data && data.address) {
+                        const addr = data.address;
+                        const street = [addr.road, addr.suburb, addr.neighbourhood, addr.residential].filter(Boolean).join(', ') || '';
+                        const city = addr.city || addr.town || addr.village || addr.state_district || '';
+                        const state = addr.state || '';
+                        
+                        setShopSetup((f: any) => ({
+                            ...f, address: street, city: city, state: state, pincode: addr.postcode || '',
+                            location: { type: 'Point', coordinates: [lon, lat], address: data.display_name }
+                        }));
+                        toast('Location & Address mapped successfully!', 'success');
+                    } else {
+                        setShopSetup((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
+                        toast('Coordinates mapped, but address details unavailable.', 'info');
+                    }
+                } catch (err) {
+                    setShopSetup((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
+                    toast('Coordinates mapped (Geocoding failed).', 'info');
+                } finally {
+                    setLoadingLocation(false);
+                }
+            },
+            (err) => { toast('Failed to get location: ' + err.message, 'error'); setLoadingLocation(false); }
+        );
+    };
+
+    const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const pin = e.target.value.replace(/\D/g, '');
+        setShopSetup((f: any) => ({ ...f, pincode: pin }));
+
+        if (pin.length === 6) {
+            setLoadingPincode(true);
+            try {
+                const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+                const data = await res.json();
+                if (data?.[0]?.Status === 'Success') {
+                    const postOffice = data[0].PostOffice[0];
+                    setShopSetup((f: any) => ({ ...f, city: postOffice.District, state: postOffice.State }));
+                    toast(`Mapped to ${postOffice.District}, ${postOffice.State}`, 'success');
+                }
+            } catch (err) { console.warn('Pincode lookup failed'); } finally { setLoadingPincode(false); }
+        }
+    };
+
     // Create shop for sellers who didn't set one up at registration
     const handleCreateShop = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!shopSetup.name.trim()) return toast('Shop name is required', 'error');
         setCreatingShop(true);
         try {
-            const { data } = await api.post('/shops', shopSetup);
+            let finalLocation = shopSetup.location;
+            if (!finalLocation && shopSetup.address && shopSetup.city) {
+                const queriesToTry = [
+                    `${shopSetup.address}, ${shopSetup.city}, ${shopSetup.state}, ${shopSetup.pincode}, ${shopSetup.country}`,
+                    `${shopSetup.address}, ${shopSetup.city}, ${shopSetup.state}`,
+                    `${shopSetup.city}, ${shopSetup.state}, ${shopSetup.pincode}`,
+                    `${shopSetup.city}, ${shopSetup.state}`,
+                    shopSetup.city
+                ];
+
+                let found = false;
+                for (const q of queriesToTry) {
+                    if (!q || !q.trim()) continue;
+                    try {
+                        const query = encodeURIComponent(q);
+                        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
+                        const data = await response.json();
+                        if (data && data.length > 0) {
+                            finalLocation = { type: 'Point', coordinates: [parseFloat(data[0].lon), parseFloat(data[0].lat)], address: data[0].display_name };
+                            found = true;
+                            break;
+                        }
+                    } catch { }
+                }
+            }
+            const finalForm = {
+                ...shopSetup,
+                location: finalLocation || {
+                    type: 'Point', coordinates: [0, 0],
+                    address: `${shopSetup.address}, ${shopSetup.city}, ${shopSetup.state}, ${shopSetup.pincode}, ${shopSetup.country}`.replace(/, ,/g, ',').trim()
+                }
+            };
+
+            const { data } = await api.post('/shops', finalForm);
             setShop(data.shop);
             setShopEdit({ name: data.shop.name, address: data.shop.location?.address || '', phone: data.shop.phone || '' });
             toast('Your shop is live! 🎉', 'success');
@@ -270,19 +390,109 @@ export default function SellerDashboard() {
         setTab('inventory');
     };
 
+    const handleEditGetLocation = () => {
+        if (!navigator.geolocation) return toast('Geolocation is not supported by your browser', 'error');
+        setEditingLocation(prev => ({ ...prev, loadingLoc: true }));
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude: lat, longitude: lon } = position.coords;
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`);
+                    const data = await res.json();
+                    if (data && data.address) {
+                        const addr = data.address;
+                        const street = [addr.road, addr.suburb, addr.neighbourhood, addr.residential].filter(Boolean).join(', ') || '';
+                        setShopEdit((f: any) => ({
+                            ...f, address: street, city: addr.city || addr.town || addr.village || addr.state_district || '', state: addr.state || '', pincode: addr.postcode || '',
+                            location: { type: 'Point', coordinates: [lon, lat], address: data.display_name, city: addr.city || addr.town || '', state: addr.state || '', pincode: addr.postcode || '', country: 'India' }
+                        }));
+                        toast('Location & Address mapped successfully!', 'success');
+                    } else {
+                        setShopEdit((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
+                    }
+                } catch {
+                    setShopEdit((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
+                } finally { setEditingLocation(prev => ({ ...prev, loadingLoc: false })); }
+            },
+            (err) => { toast('Failed to get location: ' + err.message, 'error'); setEditingLocation(prev => ({ ...prev, loadingLoc: false })); }
+        );
+    };
+
+    const handleEditPincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const pin = e.target.value.replace(/\D/g, '');
+        setShopEdit((f: any) => ({ ...f, pincode: pin }));
+        if (pin.length === 6) {
+            setEditingLocation(prev => ({ ...prev, loadingPin: true }));
+            try {
+                const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+                const data = await res.json();
+                if (data?.[0]?.Status === 'Success') {
+                    const postOffice = data[0].PostOffice[0];
+                    setShopEdit((f: any) => ({ ...f, city: postOffice.District, state: postOffice.State }));
+                    toast(`Mapped to ${postOffice.District}, ${postOffice.State}`, 'success');
+                }
+            } catch { } finally { setEditingLocation(prev => ({ ...prev, loadingPin: false })); }
+        }
+    };
+
     const handleSaveShop = async (e: React.FormEvent) => {
         e.preventDefault();
         setSavingShop(true);
         try {
-            const { data } = await api.put('/shops/my', {
+            let coords = shopEdit.location?.coordinates || [0, 0];
+            
+            if (!shopEdit.location || shopEdit.address !== shopEdit.location.address || shopEdit.city !== shopEdit.location.city || shopEdit.pincode !== shopEdit.location.pincode) {
+                const queriesToTry = [
+                    `${shopEdit.address}, ${shopEdit.city}, ${shopEdit.state}, ${shopEdit.pincode}`,
+                    `${shopEdit.address}, ${shopEdit.city}, ${shopEdit.state}`,
+                    `${shopEdit.city}, ${shopEdit.state}, ${shopEdit.pincode}`,
+                    `${shopEdit.city}, ${shopEdit.state}`,
+                    shopEdit.city
+                ];
+
+                let found = false;
+                for (const q of queriesToTry) {
+                    if (!q || !q.trim()) continue;
+                    try {
+                        const query = encodeURIComponent(q);
+                        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
+                        const data = await response.json();
+                        if (data && data.length > 0) {
+                            coords = [parseFloat(data[0].lon), parseFloat(data[0].lat)];
+                            found = true;
+                            break;
+                        }
+                    } catch { } 
+                }
+                
+                if (!found) {
+                    toast('Warning: Could not pinpoint exact map coordinates for this address.', 'info');
+                    coords = [0, 0]; // Reset so we don't accidentally match old coords
+                }
+            }
+
+            const payload = {
                 name: shopEdit.name,
                 phone: shopEdit.phone,
-                'location.address': shopEdit.address,
-            });
+                location: {
+                    type: 'Point',
+                    coordinates: coords,
+                    address: shopEdit.address,
+                    city: shopEdit.city,
+                    state: shopEdit.state,
+                    pincode: shopEdit.pincode,
+                    country: 'India'
+                }
+            };
+
+            const { data } = await api.put('/shops/my', payload);
             setShop(data.shop);
             toast('Shop updated! ✅', 'success');
-        } catch (err: any) { toast(err?.response?.data?.message || 'Update failed', 'error'); }
-        finally { setSavingShop(false); }
+        } catch (err: any) { 
+            toast(err?.response?.data?.message || 'Update failed', 'error'); 
+        } finally { 
+            setSavingShop(false); 
+        }
     };
 
     // Storeboard logic
@@ -328,17 +538,46 @@ export default function SellerDashboard() {
                         <form onSubmit={handleCreateShop} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div className="form-group">
                                 <label className="form-label">Shop Name *</label>
-                                <input className="form-input" placeholder="e.g. Ramesh General Store" value={shopSetup.name} onChange={e => setShopSetup(s => ({ ...s, name: e.target.value }))} required />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Shop Address</label>
-                                <input className="form-input" placeholder="123 Main Street, Bengaluru" value={shopSetup.address} onChange={e => setShopSetup(s => ({ ...s, address: e.target.value }))} />
+                                <input className="form-input" placeholder="e.g. Ramesh General Store" value={shopSetup.name} onChange={e => setShopSetup((s: any) => ({ ...s, name: e.target.value }))} required />
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Phone</label>
-                                <input className="form-input" placeholder="+91 98765 43210" value={shopSetup.phone} onChange={e => setShopSetup(s => ({ ...s, phone: e.target.value }))} />
+                                <input className="form-input" placeholder="+91 98765 43210" value={shopSetup.phone} onChange={e => setShopSetup((s: any) => ({ ...s, phone: e.target.value }))} />
                             </div>
-                            <button type="submit" className="btn btn-primary btn-lg" disabled={creatingShop}>
+                            <div className="form-group">
+                                <label className="form-label">Street Address *</label>
+                                <input className="form-input" placeholder="e.g. 12, MG Road, Landmark" value={shopSetup.address} onChange={e => setShopSetup((s: any) => ({ ...s, address: e.target.value }))} required />
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div className="form-group">
+                                    <label className="form-label">PIN Code</label>
+                                    <div style={{ position: 'relative' }}>
+                                        <input className="form-input" placeholder="600001" value={shopSetup.pincode} onChange={handlePincodeChange} required maxLength={6} />
+                                        {loadingPincode && <div className="spinner" style={{ position: 'absolute', right: '12px', top: '10px', width: '16px', height: '16px' }} />}
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">City</label>
+                                    <input className="form-input" placeholder="Bengaluru" value={shopSetup.city} onChange={e => setShopSetup((s: any) => ({ ...s, city: e.target.value }))} required />
+                                </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div className="form-group">
+                                    <label className="form-label">State</label>
+                                    <input className="form-input" placeholder="Karnataka" value={shopSetup.state} onChange={e => setShopSetup((s: any) => ({ ...s, state: e.target.value }))} required />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Country</label>
+                                    <input className="form-input" disabled value="India" />
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <button type="button" onClick={handleGetLocation} disabled={loadingLocation} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: shopSetup.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${shopSetup.location ? 'var(--accent)' : 'var(--border)'}`, color: shopSetup.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
+                                    {loadingLocation ? 'Detecting...' : shopSetup.location ? '📍 Exact Coordinates Mapped via GPS' : '📍 Auto-Detect Exact GPS Location'}
+                                </button>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Auto-detect location to appear in nearby buyer searches.</p>
+                            </div>
+                            <button type="submit" className="btn btn-primary btn-lg" disabled={creatingShop} style={{ marginTop: '8px' }}>
                                 {creatingShop ? '⏳ Creating...' : '🚀 Launch My Shop'}
                             </button>
                         </form>
@@ -797,16 +1036,42 @@ export default function SellerDashboard() {
                                     <form onSubmit={handleSaveShop} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                         <div className="form-group">
                                             <label className="form-label">Shop Name</label>
-                                            <input className="form-input" value={shopEdit.name} onChange={e => setShopEdit(s => ({ ...s, name: e.target.value }))} placeholder="e.g. Ramesh General Store" required />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Shop Address</label>
-                                            <input className="form-input" value={shopEdit.address} onChange={e => setShopEdit(s => ({ ...s, address: e.target.value }))} placeholder="123 Main Street, Bengaluru" />
+                                            <input className="form-input" value={shopEdit.name} onChange={e => setShopEdit((s: any) => ({ ...s, name: e.target.value }))} placeholder="e.g. Ramesh General Store" required />
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label">Phone</label>
-                                            <input className="form-input" value={shopEdit.phone} onChange={e => setShopEdit(s => ({ ...s, phone: e.target.value }))} placeholder="+91 98765 43210" />
+                                            <input className="form-input" value={shopEdit.phone} onChange={e => setShopEdit((s: any) => ({ ...s, phone: e.target.value }))} placeholder="+91 98765 43210" />
                                         </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Shop / Street Address</label>
+                                            <input className="form-input" value={shopEdit.address} onChange={e => setShopEdit((s: any) => ({ ...s, address: e.target.value }))} placeholder="123 Main Street, Bengaluru" required />
+                                        </div>
+                                        
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
+                                            <div className="form-group">
+                                                <label className="form-label">PIN Code</label>
+                                                <div style={{ position: 'relative' }}>
+                                                    <input className="form-input" placeholder="600001" value={shopEdit.pincode} onChange={handleEditPincodeChange} required maxLength={6} />
+                                                    {editingLocation.loadingPin && <div className="spinner" style={{ position: 'absolute', right: '12px', top: '10px', width: '16px', height: '16px' }} />}
+                                                </div>
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">City</label>
+                                                <input className="form-input" placeholder="Bengaluru" value={shopEdit.city} onChange={e => setShopEdit((s: any) => ({ ...s, city: e.target.value }))} required />
+                                            </div>
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">State</label>
+                                            <input className="form-input" placeholder="Karnataka" value={shopEdit.state} onChange={e => setShopEdit((s: any) => ({ ...s, state: e.target.value }))} required />
+                                        </div>
+                                        <div className="form-group" style={{ marginBottom: '16px' }}>
+                                            <label className="form-label">Exact GPS Location</label>
+                                            <button type="button" onClick={handleEditGetLocation} disabled={editingLocation.loadingLoc} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: shopEdit.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${shopEdit.location ? 'var(--accent)' : 'var(--border)'}`, color: shopEdit.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
+                                                {editingLocation.loadingLoc ? 'Detecting...' : shopEdit.location ? '📍 Coordinates Mapped' : '📍 Auto-Detect Location'}
+                                            </button>
+                                            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Pinpoint precision ensures you only receive orders from nearby buyers.</p>
+                                        </div>
+
                                         <button type="submit" className="btn btn-primary" disabled={savingShop}>
                                             {savingShop ? '⏳ Saving...' : '💾 Save Changes'}
                                         </button>
@@ -843,8 +1108,6 @@ export default function SellerDashboard() {
                     </>
                 )}
             </main>
-
-            {/* Custom Animated Modal for Existing Products */}
             {existingProductPrompt && (
                 <div style={{
                     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,

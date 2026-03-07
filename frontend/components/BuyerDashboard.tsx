@@ -5,12 +5,154 @@ import { useRouter } from 'next/navigation';
 import FaceRegister from '@/components/FaceRegister';
 
 export default function BuyerDashboard() {
-    const { user, api, deleteAccount, toast } = useApp();
+    const { user, api, updateUser, deleteAccount, toast } = useApp();
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'orders' | 'faceid' | 'account'>('orders');
     const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+    const [profileForm, setProfileForm] = useState<any>({ name: '', phone: '', address: '', city: '', state: '', pincode: '', location: null });
+    const [updatingProfile, setUpdatingProfile] = useState(false);
+    const [loadingLocation, setLoadingLocation] = useState(false);
+    const [loadingPincode, setLoadingPincode] = useState(false);
     const router = useRouter();
+
+    useEffect(() => {
+        if (user) {
+            let addr = user.location?.address || '';
+            let cty = user.location?.city || '';
+            let st = user.location?.state || '';
+            let pin = user.location?.pincode || '';
+
+            // Backwards compatibility: Extract city, state, pin from old full-string geocoded addresses
+            if (addr && (!cty || !st || !pin)) {
+                const parts = addr.split(',').map(s => s.trim()).filter(Boolean);
+                if (parts.length >= 3) {
+                    const pinIndex = parts.findIndex(p => /^\d{6}$/.test(p));
+                    if (pinIndex !== -1) {
+                        if (!pin) pin = parts[pinIndex];
+                        if (!st && pinIndex >= 1) st = parts[pinIndex - 1];
+                        if (!cty && pinIndex >= 2) cty = parts[pinIndex - 2];
+                        addr = parts.slice(0, pinIndex - 2).join(', ');
+                    }
+                }
+            }
+
+            setProfileForm({
+                name: user.name || '',
+                phone: user.phone || '',
+                address: addr,
+                city: cty,
+                state: st,
+                pincode: pin,
+                location: user.location?.coordinates?.[0] !== 0 ? user.location : null
+            });
+        }
+    }, [user]);
+
+    const handleGetLocation = () => {
+        if (!navigator.geolocation) return toast('Geolocation is not supported by your browser', 'error');
+        setLoadingLocation(true);
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                const { latitude: lat, longitude: lon } = position.coords;
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`);
+                    const data = await res.json();
+                    if (data && data.address) {
+                        const addr = data.address;
+                        const street = [addr.road, addr.suburb, addr.neighbourhood, addr.residential].filter(Boolean).join(', ') || '';
+                        setProfileForm((f: any) => ({
+                            ...f, address: street, city: addr.city || addr.town || addr.state_district || '', state: addr.state || '', pincode: addr.postcode || '',
+                            location: { type: 'Point', coordinates: [lon, lat], address: data.display_name, city: addr.city || addr.town || '', state: addr.state || '', pincode: addr.postcode || '', country: 'India' }
+                        }));
+                        toast('Location & Address mapped successfully!', 'success');
+                    } else {
+                        setProfileForm((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
+                    }
+                } catch {
+                    setProfileForm((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
+                } finally { setLoadingLocation(false); }
+            },
+            (err) => { toast('Failed to get location: ' + err.message, 'error'); setLoadingLocation(false); }
+        );
+    };
+
+    const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const pin = e.target.value.replace(/\D/g, '');
+        setProfileForm((f: any) => ({ ...f, pincode: pin }));
+        if (pin.length === 6) {
+            setLoadingPincode(true);
+            try {
+                const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+                const data = await res.json();
+                if (data?.[0]?.Status === 'Success') {
+                    const postOffice = data[0].PostOffice[0];
+                    setProfileForm((f: any) => ({ ...f, city: postOffice.District, state: postOffice.State }));
+                    toast(`Mapped to ${postOffice.District}, ${postOffice.State}`, 'success');
+                }
+            } catch { } finally { setLoadingPincode(false); }
+        }
+    };
+
+    const handleUpdateProfile = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setUpdatingProfile(true);
+        try {
+            let coords = profileForm.location?.coordinates || [0, 0];
+            
+            if (!profileForm.location || profileForm.address !== profileForm.location.address || profileForm.city !== profileForm.location.city || profileForm.pincode !== profileForm.location.pincode) {
+                const queriesToTry = [
+                    `${profileForm.address}, ${profileForm.city}, ${profileForm.state}, ${profileForm.pincode}`,
+                    `${profileForm.address}, ${profileForm.city}, ${profileForm.state}`,
+                    `${profileForm.city}, ${profileForm.state}, ${profileForm.pincode}`,
+                    `${profileForm.city}, ${profileForm.state}`,
+                    profileForm.city
+                ];
+
+                let found = false;
+                for (const q of queriesToTry) {
+                    if (!q || !q.trim()) continue;
+                    try {
+                        const query = encodeURIComponent(q);
+                        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
+                        const data = await response.json();
+                        if (data && data.length > 0) {
+                            coords = [parseFloat(data[0].lon), parseFloat(data[0].lat)];
+                            found = true;
+                            break;
+                        }
+                    } catch { } // ignore fetch errors and try next fallback
+                }
+                
+                if (!found) {
+                    toast('Warning: Could not pinpoint exact map coordinates for this address.', 'info');
+                    coords = [0, 0]; // Reset so we don't serve stale nearby shops
+                }
+            }
+
+            const payload = {
+                name: profileForm.name,
+                phone: profileForm.phone,
+                location: {
+                    type: 'Point',
+                    coordinates: coords,
+                    address: profileForm.address,
+                    city: profileForm.city,
+                    state: profileForm.state,
+                    pincode: profileForm.pincode,
+                    country: 'India'
+                }
+            };
+
+            const { data } = await api.put('/auth/me', payload);
+            updateUser(data.user);
+            toast('Profile updated successfully', 'success');
+        } catch (err: any) {
+            toast(err?.response?.data?.message || 'Update failed', 'error');
+        } finally {
+            setUpdatingProfile(false);
+        }
+    };
 
     useEffect(() => {
         api.get('/orders/my').then(r => setOrders(r.data.orders || [])).catch(() => { }).finally(() => setLoading(false));
@@ -42,7 +184,7 @@ export default function BuyerDashboard() {
                 <button onClick={() => setActiveTab('faceid')} className={`sidebar-link${activeTab === 'faceid' ? ' active' : ''}`} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', color: 'inherit', font: 'inherit' }}>
                     <span className="link-icon">🪪</span> Face ID
                 </button>
-                <button onClick={() => setActiveTab('account')} className={`sidebar-link${activeTab === 'account' ? ' active' : ''}`} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', color: 'var(--danger, #ff5252)', font: 'inherit' }}>
+                <button onClick={() => setActiveTab('account')} className={`sidebar-link${activeTab === 'account' ? ' active' : ''}`} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', color: 'var(--text-primary)', font: 'inherit' }}>
                     <span className="link-icon">⚙️</span> Account
                 </button>
             </aside>
@@ -51,7 +193,7 @@ export default function BuyerDashboard() {
             <main className="dashboard-main">
                 <div style={{ marginBottom: '32px' }}>
                     <h1 style={{ fontSize: '1.75rem', marginBottom: '6px' }}>Welcome back, {user?.name.split(' ')[0]} 👋</h1>
-                    <p className="text-muted">{activeTab === 'faceid' ? 'Manage your Face ID' : "Here's your shopping overview"}</p>
+                    <p className="text-muted">{activeTab === 'faceid' ? 'Manage your Face ID' : activeTab === 'account' ? 'Manage your profile and settings' : "Here's your shopping overview"}</p>
                 </div>
 
                 {activeTab === 'faceid' ? (
@@ -63,22 +205,71 @@ export default function BuyerDashboard() {
                         <FaceRegister userRole="buyer" onSkip={() => setActiveTab('orders')} />
                     </div>
                 ) : activeTab === 'account' ? (
-                    <div className="card" style={{ maxWidth: '500px', padding: '32px', border: '1px solid var(--danger, #ff5252)' }}>
-                        <h3 style={{ marginBottom: '8px', color: 'var(--danger, #ff5252)' }}>⚠️ Danger Zone</h3>
-                        <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '20px' }}>
-                            Permanently delete your account and all associated data including order history. This action <strong>cannot be undone</strong>.
-                        </p>
-                        <button
-                            className="btn"
-                            style={{ background: 'var(--danger, #ff5252)', color: '#fff', border: 'none' }}
-                            onClick={async () => {
-                                const deleted = await deleteAccount();
-                                if (deleted) { toast('Account deleted', 'success'); router.replace('/'); }
-                                else toast('Account deletion failed', 'error');
-                            }}
-                        >
-                            🗑️ Delete My Account
-                        </button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '600px' }}>
+                        {/* Edit Profile Card */}
+                        <div className="card" style={{ padding: '32px' }}>
+                            <h3 style={{ marginBottom: '20px' }}>Edit Profile</h3>
+                            <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                <div className="form-group">
+                                    <label className="form-label">Full Name</label>
+                                    <input className="form-input" placeholder="Your Name" value={profileForm.name} onChange={e => setProfileForm((f: any) => ({ ...f, name: e.target.value }))} required />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Phone Number</label>
+                                    <input className="form-input" placeholder="+91 98765..." value={profileForm.phone} onChange={e => setProfileForm((f: any) => ({ ...f, phone: e.target.value }))} />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Street Address</label>
+                                    <input className="form-input" placeholder="Street, landmark, floor..." value={profileForm.address} onChange={e => setProfileForm((f: any) => ({ ...f, address: e.target.value }))} required />
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">PIN Code</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <input className="form-input" placeholder="600001" value={profileForm.pincode} onChange={handlePincodeChange} required maxLength={6} />
+                                            {loadingPincode && <div className="spinner" style={{ position: 'absolute', right: '12px', top: '10px', width: '16px', height: '16px' }} />}
+                                        </div>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">City</label>
+                                        <input className="form-input" placeholder="Bengaluru" value={profileForm.city} onChange={e => setProfileForm((f: any) => ({ ...f, city: e.target.value }))} required />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">State</label>
+                                    <input className="form-input" placeholder="Karnataka" value={profileForm.state} onChange={e => setProfileForm((f: any) => ({ ...f, state: e.target.value }))} required />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: '16px' }}>
+                                    <label className="form-label">Exact GPS Location</label>
+                                    <button type="button" onClick={handleGetLocation} disabled={loadingLocation} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: profileForm.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${profileForm.location ? 'var(--accent)' : 'var(--border)'}`, color: profileForm.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
+                                        {loadingLocation ? 'Detecting...' : profileForm.location ? '📍 Coordinates Mapped' : '📍 Auto-Detect Location'}
+                                    </button>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Pinpoint precision helps us show the most relevant nearby shops.</p>
+                                </div>
+                                <button type="submit" className="btn btn-primary" disabled={updatingProfile}>
+                                    {updatingProfile ? 'Saving...' : 'Save Profile Details'}
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* Danger Zone */}
+                        <div className="card" style={{ padding: '32px', border: '1px solid var(--danger, #ff5252)' }}>
+                            <h3 style={{ marginBottom: '8px', color: 'var(--danger, #ff5252)' }}>⚠️ Danger Zone</h3>
+                            <p className="text-muted" style={{ fontSize: '0.875rem', marginBottom: '20px' }}>
+                                Permanently delete your account and all associated data including order history. This action <strong>cannot be undone</strong>.
+                            </p>
+                            <button
+                                className="btn"
+                                style={{ background: 'var(--danger, #ff5252)', color: '#fff', border: 'none' }}
+                                onClick={async () => {
+                                    const deleted = await deleteAccount();
+                                    if (deleted) { toast('Account deleted', 'success'); router.replace('/'); }
+                                    else toast('Account deletion failed', 'error');
+                                }}
+                            >
+                                🗑️ Delete My Account
+                            </button>
+                        </div>
                     </div>
                 ) : (
                     <>

@@ -31,11 +31,15 @@ interface User {
     _id: string;
     name: string;
     email: string;
+    phone?: string;
     role: 'buyer' | 'seller';
     location?: {
         type: 'Point';
         coordinates: [number, number]; // [lng, lat]
         address?: string;
+        city?: string;
+        state?: string;
+        pincode?: string;
     };
 }
 interface CartItem { productId: string; name: string; price: number; quantity: number; image: string; shopId: string; shopName?: string; }
@@ -48,6 +52,7 @@ interface AppContextType {
     logout: () => boolean;
     // ✅ NEW: Used by FaceLogin to update context state after a face scan
     setUserFromToken: (token: string, user: User) => void;
+    updateUser: (user: User) => void;
     deleteAccount: () => Promise<boolean>;
     addToCart: (item: CartItem) => void;
     removeFromCart: (productId: string) => void;
@@ -126,6 +131,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('sb_user', JSON.stringify(u));
     };
 
+    const updateUser = (u: User) => {
+        setUser(u);
+        localStorage.setItem('sb_user', JSON.stringify(u));
+    };
+
     const logout = (): boolean => {
         if (typeof window !== 'undefined' && !window.confirm('Are you sure you want to sign out?')) return false;
         // ✅ FIX: Clear React state first, then localStorage — both must clear for a clean logout
@@ -180,7 +190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!hydrated) return null;
 
     return (
-        <AppContext.Provider value={{ user, token, cart, cartOpen, login, register, logout, setUserFromToken, deleteAccount, addToCart, removeFromCart, updateQty, clearCart, setCartOpen, cartTotal, cartCount, api: API, toast, toasts }}>
+        <AppContext.Provider value={{ user, token, cart, cartOpen, login, register, logout, setUserFromToken, updateUser, deleteAccount, addToCart, removeFromCart, updateQty, clearCart, setCartOpen, cartTotal, cartCount, api: API, toast, toasts }}>
             {children}
             {/* Toast container */}
             <div className="toast-container">

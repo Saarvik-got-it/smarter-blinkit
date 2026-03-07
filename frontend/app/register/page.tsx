@@ -106,16 +106,31 @@ export default function RegisterPage() {
             let finalLocation = form.location;
 
             if (!finalLocation && form.streetAddress && form.city) {
-                const query = encodeURIComponent(`${form.streetAddress}, ${form.city}, ${form.state}, ${form.pincode}, ${form.country}`);
-                const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
-                const data = await response.json();
+                const queriesToTry = [
+                    `${form.streetAddress}, ${form.city}, ${form.state}, ${form.pincode}, ${form.country}`,
+                    `${form.streetAddress}, ${form.city}, ${form.state}`,
+                    `${form.city}, ${form.state}, ${form.pincode}`,
+                    `${form.city}, ${form.state}`,
+                    form.city
+                ];
 
-                if (data?.[0]) {
-                    finalLocation = {
-                        type: 'Point',
-                        coordinates: [parseFloat(data[0].lon), parseFloat(data[0].lat)],
-                        address: data[0].display_name
-                    };
+                let found = false;
+                for (const q of queriesToTry) {
+                    if (!q || !q.trim()) continue;
+                    try {
+                        const query = encodeURIComponent(q);
+                        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
+                        const data = await response.json();
+                        if (data && data.length > 0) {
+                            finalLocation = {
+                                type: 'Point',
+                                coordinates: [parseFloat(data[0].lon), parseFloat(data[0].lat)],
+                                address: data[0].display_name
+                            };
+                            found = true;
+                            break;
+                        }
+                    } catch { }
                 }
             }
 

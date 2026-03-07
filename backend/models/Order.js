@@ -51,4 +51,22 @@ const orderSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
+// ── Auto-update Excel report on order creation/update ──────────────
+const path = require('path');
+let _reportTimer = null;
+orderSchema.post('save', function () {
+    console.log('📋 Order saved — scheduling report regeneration…');
+    if (_reportTimer) clearTimeout(_reportTimer);
+    _reportTimer = setTimeout(async () => {
+        try {
+            const servicePath = path.join(__dirname, '..', 'services', 'userReportService');
+            const { generateUserReport } = require(servicePath);
+            await generateUserReport();
+            console.log('✅ Auto-report regeneration complete (from Order update)');
+        } catch (err) {
+            console.error('⚠️ Auto-report generation failed:', err.message);
+        }
+    }, 2000);
+});
+
 module.exports = mongoose.model('Order', orderSchema);

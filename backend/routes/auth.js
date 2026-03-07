@@ -12,7 +12,7 @@ const signToken = (id) =>
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
     try {
-        const { name, email, password, role, phone, shopName, shopAddress, location } = req.body;
+        const { name, email, password, role, phone, shopName, address, city, state, pincode, country, location } = req.body;
         if (!name || !email || !password || !role)
             return res.status(400).json({ success: false, message: 'Name, email, password, and role are required' });
 
@@ -32,7 +32,11 @@ router.post('/register', async (req, res) => {
                 location: {
                     type: 'Point',
                     coordinates: location?.coordinates || [0, 0],
-                    address: shopAddress || '',
+                    address: address || location?.address || 'Address not provided',
+                    city: city || '',
+                    state: state || '',
+                    pincode: pincode || '',
+                    country: country || 'India'
                 },
             });
         }
@@ -110,6 +114,29 @@ router.post('/register-face', protect, async (req, res) => {
 // GET /api/auth/me
 router.get('/me', protect, async (req, res) => {
     res.json({ success: true, user: req.user });
+});
+
+// PUT /api/auth/me
+router.put('/me', protect, async (req, res) => {
+    try {
+        const { name, phone, address, location } = req.body;
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        if (name) user.name = name;
+        if (phone !== undefined) user.phone = phone;
+        if (address !== undefined) {
+            user.location.address = address;
+        }
+        if (location) {
+            user.location = location;
+        }
+
+        await user.save();
+        res.json({ success: true, user, message: 'Profile updated successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
 });
 
 // POST /api/auth/reset-password-request (Mock)

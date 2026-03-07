@@ -29,4 +29,22 @@ const shopSchema = new mongoose.Schema(
 shopSchema.index({ location: '2dsphere' });
 shopSchema.index({ ownerId: 1 });
 
+// ── Auto-update Excel report on new shop creation/update ──────────────
+const path = require('path');
+let _reportTimer = null;
+shopSchema.post('save', function () {
+    console.log('📋 Shop saved — scheduling report regeneration…');
+    if (_reportTimer) clearTimeout(_reportTimer);
+    _reportTimer = setTimeout(async () => {
+        try {
+            const servicePath = path.join(__dirname, '..', 'services', 'userReportService');
+            const { generateUserReport } = require(servicePath);
+            await generateUserReport();
+            console.log('✅ Auto-report regeneration complete (from Shop update)');
+        } catch (err) {
+            console.error('⚠️ Auto-report generation failed:', err.message);
+        }
+    }, 2000);
+});
+
 module.exports = mongoose.model('Shop', shopSchema);
