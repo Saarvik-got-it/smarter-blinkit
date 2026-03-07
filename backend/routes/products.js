@@ -5,6 +5,7 @@ const Shop = require('../models/Shop');
 const { protect, requireRole } = require('../middleware/auth');
 const neo4jService = require('../services/neo4j');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const axios = require('axios');
 
 const router = express.Router();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -201,6 +202,19 @@ router.get('/shop/:shopId', async (req, res) => {
     }
 });
 
+// GET /api/products/low-stock — low stock items for a shop
+router.get('/low-stock', protect, requireRole('seller'), async (req, res) => {
+    try {
+        const shop = await Shop.findOne({ ownerId: req.user._id });
+        if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
+        
+        const products = await Product.find({ shopId: shop._id, stock: { $lt: 5 } }).sort({ stock: 1 });
+        res.json({ success: true, count: products.length, products });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // POST /api/products — seller creates a product
 router.post('/', protect, requireRole('seller'), async (req, res) => {
     try {
@@ -212,6 +226,19 @@ router.post('/', protect, requireRole('seller'), async (req, res) => {
             shopId: shop._id,
             location: shop.location // Inherit shop coordinates [lng, lat]
         });
+
+        // Add SIMILAR_TO relationships via category in Neo4j
+        try {
+            const similarProducts = await Product.find({
+                category: product.category,
+                _id: { $ne: product._id }
+            }).limit(3).select('_id');
+            for (const sim of similarProducts) {
+                await neo4jService.createSimilarRelationship(product._id.toString(), sim._id.toString());
+            }
+        } catch (simErr) {
+            console.warn('Failed to add SIMILAR_TO relationships:', simErr.message);
+        }
 
         // Generate embedding and sync to Mongo/Neo4j
         await generateAndSyncEmbedding(product);
@@ -249,7 +276,28 @@ router.post('/barcode/lookup', protect, requireRole('seller'), async (req, res) 
         if (!barcode) return res.status(400).json({ success: false, message: 'Barcode required' });
         const shop = await Shop.findOne({ ownerId: req.user._id });
         const product = await Product.findOne({ barcode, shopId: shop._id });
-        res.json({ success: true, found: !!product, product });
+        
+        if (product) {
+            return res.json({ success: true, found: true, external: false, product });
+        }
+
+        // External API Lookup Fallback (OpenFoodFacts)
+        try {
+            const { data } = await axios.get(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`, { timeout: 4000 });
+            if (data && data.status === 1 && data.product) {
+                const extProduct = {
+                    name: data.product.product_name || '',
+                    category: data.product.categories?.split(',')[0] || '',
+                    brand: data.product.brands || '',
+                    image: data.product.image_url || ''
+                };
+                return res.json({ success: true, found: false, external: true, productData: extProduct });
+            }
+        } catch (apiErr) {
+            console.warn('External barcode lookup failed:', apiErr.message);
+        }
+
+        res.json({ success: true, found: false, external: false, product: null });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

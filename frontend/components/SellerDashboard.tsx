@@ -17,7 +17,7 @@ export default function SellerDashboard() {
     const [products, setProducts] = useState<any[]>([]);
     const [orders, setOrders] = useState<any[]>([]);
     const [tab, setTab] = useState<'overview' | 'inventory' | 'orders' | 'barcode' | 'settings' | 'storeboard'>('overview');
-    const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '' });
+    const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '', expiryDate: '' });
     const [shopEdit, setShopEdit] = useState({ name: '', address: '', phone: '' });
     const [savingShop, setSavingShop] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -49,11 +49,19 @@ export default function SellerDashboard() {
     const handleAddProduct = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const { data } = await api.post('/products', { ...newProduct, price: Number(newProduct.price), stock: Number(newProduct.stock) });
+            const payload: any = { ...newProduct, price: Number(newProduct.price), stock: Number(newProduct.stock) };
+            if (!payload.expiryDate) delete payload.expiryDate;
+            const { data } = await api.post('/products', payload);
             setProducts(p => [...p, data.product]);
-            setNewProduct({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '' });
+            setNewProduct({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '', expiryDate: '' });
             toast('Product added! ✅', 'success');
         } catch (err: any) { toast(err?.response?.data?.message || 'Failed to add product', 'error'); }
+    };
+
+    const generateDemoBarcode = () => {
+        const code = Math.floor(100000000000 + Math.random() * 900000000000).toString(); // 12-digit numeric
+        setNewProduct(p => ({ ...p, barcode: code }));
+        toast(`Generated demo barcode: ${code}`, 'success');
     };
 
     // Create shop for sellers who didn't set one up at registration
@@ -122,9 +130,46 @@ export default function SellerDashboard() {
             const result = reader.decodeFromCanvas(canvas);
             const code = result.getText();
             stopScanner();
-            setNewProduct(p => ({ ...p, barcode: code }));
-            setTab('inventory');
-            toast(`Barcode scanned: ${code} ✅`, 'success');
+            toast(`Barcode scanned: ${code} ✅. Checking details...`, 'info');
+
+            try {
+                const res = await api.post('/products/barcode/lookup', { barcode: code });
+                if (res.data.found) {
+                    if (window.confirm(`Product "${res.data.product.name}" already exists in inventory. Increase stock by 1?`)) {
+                        await api.post('/products/barcode/update', { barcode: code, stockDelta: 1 });
+                        setProducts(prev => prev.map(p => p._id === res.data.product._id ? { ...p, stock: p.stock + 1 } : p));
+                        toast(`Stock for ${res.data.product.name} increased by 1 ✅`, 'success');
+                        setTab('inventory');
+                    } else {
+                        // Populate form for editing
+                        setNewProduct({
+                            ...res.data.product,
+                            price: res.data.product.price.toString(),
+                            stock: res.data.product.stock.toString(),
+                            expiryDate: res.data.product.expiryDate ? new Date(res.data.product.expiryDate).toISOString().split('T')[0] : ''
+                        });
+                        setTab('inventory');
+                    }
+                } else if (res.data.external && res.data.productData) {
+                    setNewProduct(p => ({
+                        ...p,
+                        barcode: code,
+                        name: res.data.productData.name || '',
+                        category: res.data.productData.category || '',
+                        description: res.data.productData.brand ? `Brand: ${res.data.productData.brand}` : ''
+                    }));
+                    toast('External product details found! Auto-filled form.', 'success');
+                    setTab('inventory');
+                } else {
+                    setNewProduct(p => ({ ...p, barcode: code }));
+                    toast('Product not found. Please enter details manually.', 'info');
+                    setTab('inventory');
+                }
+            } catch (err: any) {
+                setNewProduct(p => ({ ...p, barcode: code }));
+                toast('Error checking barcode. Please enter details manually.', 'error');
+                setTab('inventory');
+            }
         } catch {
             toast('No barcode detected — try holding still and try again.', 'info');
         } finally {
@@ -246,8 +291,21 @@ export default function SellerDashboard() {
                                     <div className="stat-card"><div className="stat-icon orange">📦</div><div className="stat-label">Total Products</div><div className="stat-value">{products.length}</div></div>
                                     <div className="stat-card"><div className="stat-icon green">💰</div><div className="stat-label">Total Revenue</div><div className="stat-value">₹{totalRevenue.toFixed(0)}</div></div>
                                     <div className="stat-card"><div className="stat-icon blue">📋</div><div className="stat-label">Total Orders</div><div className="stat-value">{orders.length}</div></div>
-                                    <div className="stat-card"><div className="stat-icon red">⚠️</div><div className="stat-label">Low Stock</div><div className="stat-value">{products.filter(p => p.stock < 10).length}</div></div>
+                                    <div className="stat-card"><div className="stat-icon red">⚠️</div><div className="stat-label">Low Stock</div><div className="stat-value">{products.filter(p => p.stock < 5).length}</div></div>
                                 </div>
+                                
+                                {products.filter(p => p.stock < 5).length > 0 && (
+                                    <div className="card" style={{ padding: '20px', marginBottom: '28px', borderLeft: '4px solid var(--danger)' }}>
+                                        <h3 style={{ marginBottom: '16px', color: 'var(--danger)' }}>⚠️ Low Stock Alerts</h3>
+                                        {products.filter(p => p.stock < 5).map(p => (
+                                            <div key={p._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                                                <span style={{ fontWeight: 500 }}>{p.name} <span className="text-muted" style={{ fontSize: '0.8rem' }}>({p.category})</span></span>
+                                                <span className="badge badge-red">{p.stock} remaining</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
                                 <div className="card" style={{ padding: '20px' }}>
                                     <h3 style={{ marginBottom: '16px' }}>Top Products by Sales</h3>
                                     {products.sort((a, b) => b.salesCount - a.salesCount).slice(0, 5).map(p => (
@@ -255,7 +313,7 @@ export default function SellerDashboard() {
                                             <span style={{ fontWeight: 500 }}>{p.name}</span>
                                             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                                 <span className="badge badge-green">{p.salesCount} sold</span>
-                                                <span style={{ color: p.stock < 10 ? 'var(--danger)' : 'var(--text-muted)', fontSize: '0.8rem' }}>Stock: {p.stock}</span>
+                                                <span style={{ color: p.stock < 5 ? 'var(--danger)' : 'var(--text-muted)', fontSize: '0.8rem' }}>Stock: {p.stock}</span>
                                             </div>
                                         </div>
                                     ))}
@@ -448,7 +506,15 @@ export default function SellerDashboard() {
                                                     {['piece', 'kg', 'g', 'litre', 'ml', 'pack', 'dozen'].map(u => <option key={u}>{u}</option>)}
                                                 </select>
                                             </div>
-                                            <div className="form-group"><label className="form-label">Barcode</label><input className="form-input" placeholder="Scan or enter" value={newProduct.barcode} onChange={e => setNewProduct(p => ({ ...p, barcode: e.target.value }))} /></div>
+                                            <div className="form-group"><label className="form-label">Barcode</label>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <input className="form-input" placeholder="Scan or enter" value={newProduct.barcode} onChange={e => setNewProduct(p => ({ ...p, barcode: e.target.value }))} />
+                                                    <button type="button" className="btn btn-secondary" onClick={generateDemoBarcode} title="Generate Demo Barcode">🎲</button>
+                                                </div>
+                                            </div>
+                                            {['dairy', 'packaged food', 'beverages'].includes(newProduct.category.toLowerCase()) && (
+                                                <div className="form-group"><label className="form-label">Expiry Date</label><input className="form-input" type="date" value={newProduct.expiryDate} onChange={e => setNewProduct(p => ({ ...p, expiryDate: e.target.value }))} /></div>
+                                            )}
                                         </div>
                                         <div className="form-group" style={{ marginBottom: '16px' }}><label className="form-label">Description</label><input className="form-input" placeholder="Brief product description..." value={newProduct.description} onChange={e => setNewProduct(p => ({ ...p, description: e.target.value }))} /></div>
                                         <div style={{ display: 'flex', gap: '12px' }}>
@@ -469,10 +535,10 @@ export default function SellerDashboard() {
                                             <tbody>
                                                 {products.map(p => (
                                                     <tr key={p._id}>
-                                                        <td style={{ fontWeight: 500 }}>{p.name}</td>
+                                                        <td style={{ fontWeight: 500 }}>{p.name} {p.expiryDate && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Exp: {new Date(p.expiryDate).toLocaleDateString()}</span>}</td>
                                                         <td><span className="badge badge-blue">{p.category}</span></td>
                                                         <td style={{ color: 'var(--accent)', fontWeight: 700 }}>₹{p.price}</td>
-                                                        <td><span style={{ color: p.stock < 10 ? 'var(--danger)' : 'var(--text-primary)', fontWeight: 600 }}>{p.stock} {p.unit}</span></td>
+                                                        <td><span style={{ color: p.stock < 5 ? 'var(--danger)' : 'var(--text-primary)', fontWeight: 600 }}>{p.stock} {p.unit}</span></td>
                                                         <td>{p.salesCount}</td>
                                                     </tr>
                                                 ))}

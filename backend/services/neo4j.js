@@ -217,4 +217,4 @@ async function closeDriver() {
     if (driver) { await driver.close(); driver = null; }
 }
 
-module.exports = { upsertProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver, initVectorIndex, semanticSearch };
+module.exports = { upsertProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver, initVectorIndex, semanticSearch, createSimilarRelationship };

@@ -12,6 +12,7 @@ const productSchema = new mongoose.Schema(
         subCategory: { type: String, default: '' },
         barcode: { type: String, default: '', index: true },
         image: { type: String, default: '' },
+        expiryDate: { type: Date }, // For food/perishable categories
         shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
         location: {
             type: { type: String, enum: ['Point'], default: 'Point' },

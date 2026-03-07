@@ -6,7 +6,7 @@
 
 **Current Focus and Status:**
 * Figuring out best workflow and priority (Gemini/ Hugging Face/ Neo4j) to reduce response time for AI smart search and recipe agent. 
-* Trying to make the barcode inventory system more automated and user-friendly. 
+* Integrated an **Intelligent Barcode Inventory System** featuring external API lookups (OpenFoodFacts) and smart stock increments.
 * Not have given much time to the UI/UX part (frontend), so it needs lot of improvement, design and animations.
 
 
@@ -84,6 +84,7 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 5.  **Indian Postal Pin Code API (`api.postalpincode.in`)**: Automatically maps 6-digit PIN codes to their respective Districts/Cities and States during registration.
 6.  **Hugging Face (Inference Fallback)**: Used as a secondary layer for semantic similarity if Gemini quotas are exceeded.
 7.  **Stripe API (Test Mode)**: Handles real card payments via Stripe PaymentIntents. Uses `@stripe/stripe-js` (frontend) and `stripe` Node SDK (backend) for a full PCI-compliant checkout flow.
+8.  **OpenFoodFacts API**: Public external API used to seamlessly fetch product details (name, brand, category, image) for unrecognised barcodes during inventory scanning, eliminating manual entry.
 
 
 ---
@@ -117,7 +118,8 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 - **Money Map**: Leaflet.js heatmap showing order density and intensity based on live MongoDB transactions.
 - **Smart Product Pairing**: Hybrid engine using **Google Gemini** embeddings (3072-dim). It features a 3-tier fallback (Neo4j Graph -> Semantic Vector -> MongoDB Category) to ensure 100% availability with conceptual pairing.
 - **Local First Geocoding**: Manual address fields on registration are automatically converted to coordinates via Nominatim fallback if GPS is not used.
-- **Advanced Inventory**: ZXing-powered barcode scanner for sellers to manage 1:1 inventory mapping.
+- **Intelligent Barcode Inventory**: ZXing-powered barcode scanner for sellers. Features automated external API (OpenFoodFacts) lookup for unknown barcodes, a Fast Scan mode to rapidly restock existing items, and demo barcode generation.
+- **Dynamic Product Constraints**: Real-time evaluation of perishable goods by introducing expiry dates on applicable categories.
 - **Secure Developer Admin**: Secure Admin Panel (`/admin/users`) for full site surveillance.
 
 ### Stage 5 — Reliability & Fallbacks ✅
@@ -301,7 +303,8 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 | POST | `/api/auth/face-login` | Face descriptor match |
 | GET | `/api/products/search?q=&lat=&lng=` | Intent + geo search |
 | GET | `/api/products/:id/suggestions` | Neo4j similar products |
-| POST | `/api/products/barcode/lookup` | Barcode → product |
+| GET | `/api/products/low-stock` | Retrieve seller's low stock items (<5) |
+| POST | `/api/products/barcode/lookup` | Fast barcode external/internal lookup |
 | POST | `/api/orders` | Place order (with cart splitting) |
 | POST | `/api/payments/create-intent` | Create Stripe PaymentIntent (or mock fallback) |
 | POST | `/api/payments/verify` | Verify Stripe PaymentIntent status |
