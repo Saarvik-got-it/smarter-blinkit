@@ -17,7 +17,7 @@ export default function SellerDashboard() {
     const [products, setProducts] = useState<any[]>([]);
     const [orders, setOrders] = useState<any[]>([]);
     const [tab, setTab] = useState<'overview' | 'inventory' | 'orders' | 'barcode' | 'settings' | 'storeboard'>('overview');
-    const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '', expiryDate: '' });
+    const [newProduct, setNewProduct] = useState({ name: '', price: '', stock: '', category: '', unit: 'piece', weight: '', barcode: '', image: '', description: '', expiryDate: '' });
     const [shopEdit, setShopEdit] = useState({ name: '', address: '', phone: '' });
     const [savingShop, setSavingShop] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -26,6 +26,9 @@ export default function SellerDashboard() {
     const [shopSetup, setShopSetup] = useState({ name: '', address: '', phone: '' });
     const [creatingShop, setCreatingShop] = useState(false);
     const [catDropdownOpen, setCatDropdownOpen] = useState(false);
+
+    // State for animated custom modal prompt when scanning dupes
+    const [existingProductPrompt, setExistingProductPrompt] = useState<{ isOpen: boolean; product: any; barcode: string } | null>(null);
 
     // Derive unique categories from the shop's current inventory
     const shopCategories: string[] = [...new Set(products.map((p: any) => p.category).filter(Boolean))] as string[];
@@ -49,13 +52,34 @@ export default function SellerDashboard() {
     const handleAddProduct = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            const payload: any = { ...newProduct, price: Number(newProduct.price), stock: Number(newProduct.stock) };
+            let processedWeight = newProduct.weight.trim();
+            // If the user only typed a number (e.g., "52" or " 52 "), append the selected unit type
+            if (processedWeight && !isNaN(Number(processedWeight))) {
+                processedWeight = `${processedWeight}${newProduct.unit === 'piece' ? '' : newProduct.unit}`;
+            }
+
+            const payload: any = { 
+                ...newProduct, 
+                price: Number(newProduct.price), 
+                stock: Number(newProduct.stock),
+                weight: processedWeight 
+            };
+            
             if (!payload.expiryDate) delete payload.expiryDate;
-            const { data } = await api.post('/products', payload);
-            setProducts(p => [...p, data.product]);
-            setNewProduct({ name: '', price: '', stock: '', category: '', unit: 'piece', barcode: '', description: '', expiryDate: '' });
-            toast('Product added! ✅', 'success');
-        } catch (err: any) { toast(err?.response?.data?.message || 'Failed to add product', 'error'); }
+            
+            if (payload._id) {
+                const { _id, ...updatePayload } = payload;
+                const { data } = await api.put(`/products/${_id}`, updatePayload);
+                setProducts(p => p.map(prod => prod._id === _id ? data.product : prod));
+                toast('Product updated! ✅', 'success');
+            } else {
+                const { data } = await api.post('/products', payload);
+                setProducts(p => [...p, data.product]);
+                toast('Product added! ✅', 'success');
+            }
+            
+            setNewProduct({ name: '', price: '', stock: '', category: '', unit: 'piece', weight: '', barcode: '', image: '', description: '', expiryDate: '' });
+        } catch (err: any) { toast(err?.response?.data?.message || 'Failed to save product', 'error'); }
     };
 
     const generateDemoBarcode = () => {
@@ -135,28 +159,16 @@ export default function SellerDashboard() {
             try {
                 const res = await api.post('/products/barcode/lookup', { barcode: code });
                 if (res.data.found) {
-                    if (window.confirm(`Product "${res.data.product.name}" already exists in inventory. Increase stock by 1?`)) {
-                        await api.post('/products/barcode/update', { barcode: code, stockDelta: 1 });
-                        setProducts(prev => prev.map(p => p._id === res.data.product._id ? { ...p, stock: p.stock + 1 } : p));
-                        toast(`Stock for ${res.data.product.name} increased by 1 ✅`, 'success');
-                        setTab('inventory');
-                    } else {
-                        // Populate form for editing
-                        setNewProduct({
-                            ...res.data.product,
-                            price: res.data.product.price.toString(),
-                            stock: res.data.product.stock.toString(),
-                            expiryDate: res.data.product.expiryDate ? new Date(res.data.product.expiryDate).toISOString().split('T')[0] : ''
-                        });
-                        setTab('inventory');
-                    }
+                    // Show custom animated modal instead of window.confirm
+                    setExistingProductPrompt({ isOpen: true, product: res.data.product, barcode: code });
                 } else if (res.data.external && res.data.productData) {
                     setNewProduct(p => ({
                         ...p,
                         barcode: code,
                         name: res.data.productData.name || '',
                         category: res.data.productData.category || '',
-                        description: res.data.productData.brand ? `Brand: ${res.data.productData.brand}` : ''
+                        description: res.data.productData.brand ? `Brand: ${res.data.productData.brand}` : '',
+                        image: res.data.productData.image || ''
                     }));
                     toast('External product details found! Auto-filled form.', 'success');
                     setTab('inventory');
@@ -179,6 +191,84 @@ export default function SellerDashboard() {
 
 
 
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setScanning(true);
+        setCapturing(true);
+
+        try {
+            const url = URL.createObjectURL(file);
+            const { BrowserMultiFormatReader } = await import('@zxing/browser');
+            const reader = new BrowserMultiFormatReader();
+            
+            const result = await reader.decodeFromImageUrl(url);
+            const code = result.getText();
+            URL.revokeObjectURL(url);
+            setScanning(false);
+            setCapturing(false);
+            
+            toast(`Barcode found from image: ${code} ✅. Checking details...`, 'info');
+            
+            try {
+                const res = await api.post('/products/barcode/lookup', { barcode: code });
+                if (res.data.found) {
+                    setExistingProductPrompt({ isOpen: true, product: res.data.product, barcode: code });
+                } else if (res.data.external && res.data.productData) {
+                    setNewProduct(p => ({
+                        ...p,
+                        barcode: code,
+                        name: res.data.productData.name || '',
+                        category: res.data.productData.category || '',
+                        description: res.data.productData.brand ? `Brand: ${res.data.productData.brand}` : '',
+                        image: res.data.productData.image || ''
+                    }));
+                    toast('External product details found! Auto-filled form.', 'success');
+                    setTab('inventory');
+                } else {
+                    setNewProduct(p => ({ ...p, barcode: code }));
+                    toast('Product not found. Please enter details manually.', 'info');
+                    setTab('inventory');
+                }
+            } catch (err: any) {
+                setNewProduct(p => ({ ...p, barcode: code }));
+                toast('Error checking barcode. Please enter details manually.', 'error');
+                setTab('inventory');
+            }
+        } catch {
+            setScanning(false);
+            setCapturing(false);
+            toast('Failed to decode barcode from image. Please ensure the image is clear and try again.', 'error');
+        }
+    };
+
+    const handlePromptAction = async (action: 'increase' | 'edit' | 'cancel') => {
+        if (!existingProductPrompt) return;
+        
+        const { product, barcode } = existingProductPrompt;
+        
+        if (action === 'increase') {
+            try {
+                await api.post('/products/barcode/update', { barcode, stockDelta: 1 });
+                setProducts(prev => prev.map(p => p._id === product._id ? { ...p, stock: p.stock + 1 } : p));
+                toast(`Stock for ${product.name} increased by 1 ✅`, 'success');
+            } catch (err: any) {
+                toast(err?.response?.data?.message || 'Failed to update stock', 'error');
+            }
+        } else if (action === 'edit') {
+            setNewProduct({
+                ...product,
+                price: product.price.toString(),
+                stock: product.stock.toString(),
+                expiryDate: product.expiryDate ? new Date(product.expiryDate).toISOString().split('T')[0] : ''
+            });
+        }
+        
+        setExistingProductPrompt(null);
+        setTab('inventory');
+    };
 
     const handleSaveShop = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -232,7 +322,7 @@ export default function SellerDashboard() {
                     <div style={{ textAlign: 'center', marginBottom: '32px' }}>
                         <div style={{ fontSize: '4rem', marginBottom: '16px' }}>🏪</div>
                         <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '8px' }}>Set Up Your Shop</h1>
-                        <p className="text-muted">You don't have a shop yet. Create one to start selling!</p>
+                        <p className="text-muted">You don&apos;t have a shop yet. Create one to start selling!</p>
                     </div>
                     <div className="card" style={{ padding: '32px' }}>
                         <form onSubmit={handleCreateShop} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -424,12 +514,49 @@ export default function SellerDashboard() {
                                 </div>
                                 {/* Add Product Form */}
                                 <div className="card" style={{ marginBottom: '24px' }}>
-                                    <h3 style={{ marginBottom: '20px' }}>➕ Add Product {newProduct.barcode && <span className="badge badge-green" style={{ marginLeft: 8 }}>Barcode: {newProduct.barcode}</span>}</h3>
+                                    <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <span>
+                                            {(newProduct as any)._id ? '✏️ Edit Product' : '➕ Add Product'} 
+                                            {newProduct.barcode && <span className="badge badge-green" style={{ marginLeft: 8 }}>Barcode: {newProduct.barcode}</span>}
+                                        </span>
+                                        {(newProduct as any)._id && (
+                                            <button className="btn btn-secondary btn-sm" onClick={() => setNewProduct({ name: '', price: '', stock: '', category: '', unit: 'piece', weight: '', barcode: '', image: '', description: '', expiryDate: '' })}>Cancel Edit</button>
+                                        )}
+                                    </h3>
+                                    
+                                    {/* Product Image Preview Area */}
+                                    <div style={{ display: 'flex', gap: '20px', marginBottom: '24px', alignItems: 'flex-start' }}>
+                                        <div style={{ 
+                                            width: '120px', height: '120px', 
+                                            borderRadius: 'var(--radius-md)', 
+                                            background: newProduct.image ? 'transparent' : 'var(--bg-elevated)', 
+                                            border: '2px dashed var(--border)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            overflow: 'hidden', flexShrink: 0
+                                        }}>
+                                            {newProduct.image ? (
+                                                <img src={newProduct.image} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="%23ddd"/><text x="50" y="50" font-family="sans-serif" font-size="12" fill="%23888" text-anchor="middle" alignment-baseline="middle">Invalid Image</text></svg>'; }} />
+                                            ) : (
+                                                <div style={{ color: 'var(--text-muted)', fontSize: '2rem' }}>🖼️</div>
+                                            )}
+                                        </div>
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            <div className="form-group" style={{ margin: 0 }}>
+                                                <label className="form-label">Product Image URL (Optional)</label>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <input className="form-input" placeholder="https://example.com/image.jpg" value={newProduct.image} onChange={e => setNewProduct(p => ({ ...p, image: e.target.value }))} />
+                                                    {newProduct.image && <button type="button" className="btn btn-secondary" onClick={() => setNewProduct(p => ({ ...p, image: '' }))}>Clear</button>}
+                                                </div>
+                                                <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Fetched automatically if picking up recognised barcodes, or enter your own.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <form onSubmit={handleAddProduct}>
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
                                             <div className="form-group"><label className="form-label">Product Name*</label><input className="form-input" placeholder="e.g. Wheat Flour" value={newProduct.name} onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))} required /></div>
                                             <div className="form-group"><label className="form-label">Price (₹)*</label><input className="form-input" type="number" min="0" step="0.01" placeholder="49.99" value={newProduct.price} onChange={e => setNewProduct(p => ({ ...p, price: e.target.value }))} required /></div>
-                                            <div className="form-group"><label className="form-label">Stock*</label><input className="form-input" type="number" min="0" placeholder="100" value={newProduct.stock} onChange={e => setNewProduct(p => ({ ...p, stock: e.target.value }))} required /></div>
+                                            <div className="form-group"><label className="form-label">Stock (Pieces)*</label><input className="form-input" type="number" min="0" placeholder="100" value={newProduct.stock} onChange={e => setNewProduct(p => ({ ...p, stock: e.target.value }))} required /></div>
                                             <div className="form-group" style={{ position: 'relative' }}>
                                                 <label className="form-label">Category*</label>
                                                 <input
@@ -501,24 +628,24 @@ export default function SellerDashboard() {
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="form-group"><label className="form-label">Unit</label>
+                                            <div className="form-group">
+                                                <label className="form-label">Unit Type</label>
                                                 <select className="form-select" value={newProduct.unit} onChange={e => setNewProduct(p => ({ ...p, unit: e.target.value }))}>
-                                                    {['piece', 'kg', 'g', 'litre', 'ml', 'pack', 'dozen'].map(u => <option key={u}>{u}</option>)}
+                                                    {['piece', 'pack', 'box', 'dozen', 'kg', 'g', 'litre', 'ml'].map(u => <option key={u}>{u}</option>)}
                                                 </select>
                                             </div>
-                                            <div className="form-group"><label className="form-label">Barcode</label>
+                                            <div className="form-group"><label className="form-label">Weight/Volume per Item</label><input className="form-input" placeholder="e.g. 250g, 1L" value={newProduct.weight || ''} onChange={e => setNewProduct(p => ({ ...p, weight: e.target.value }))} /></div>
+                                            <div className="form-group"><label className="form-label">Expiry Date (Optional)</label><input className="form-input" type="date" value={newProduct.expiryDate} onChange={e => setNewProduct(p => ({ ...p, expiryDate: e.target.value }))} /></div>
+                                            <div className="form-group"><label className="form-label">Barcode (Optional)</label>
                                                 <div style={{ display: 'flex', gap: '8px' }}>
                                                     <input className="form-input" placeholder="Scan or enter" value={newProduct.barcode} onChange={e => setNewProduct(p => ({ ...p, barcode: e.target.value }))} />
                                                     <button type="button" className="btn btn-secondary" onClick={generateDemoBarcode} title="Generate Demo Barcode">🎲</button>
                                                 </div>
                                             </div>
-                                            {['dairy', 'packaged food', 'beverages'].includes(newProduct.category.toLowerCase()) && (
-                                                <div className="form-group"><label className="form-label">Expiry Date</label><input className="form-input" type="date" value={newProduct.expiryDate} onChange={e => setNewProduct(p => ({ ...p, expiryDate: e.target.value }))} /></div>
-                                            )}
                                         </div>
                                         <div className="form-group" style={{ marginBottom: '16px' }}><label className="form-label">Description</label><input className="form-input" placeholder="Brief product description..." value={newProduct.description} onChange={e => setNewProduct(p => ({ ...p, description: e.target.value }))} /></div>
                                         <div style={{ display: 'flex', gap: '12px' }}>
-                                            <button type="submit" className="btn btn-primary">Add Product</button>
+                                            <button type="submit" className="btn btn-primary">{(newProduct as any)._id ? 'Update Product' : 'Add Product'}</button>
                                             <button type="button" className="btn btn-secondary" onClick={() => setTab('barcode')}>🔲 Scan Barcode</button>
                                         </div>
                                     </form>
@@ -531,15 +658,52 @@ export default function SellerDashboard() {
                                     </div>
                                     <div className="table-wrap">
                                         <table className="table">
-                                            <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Sold</th></tr></thead>
+                                            <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Sold</th><th>Actions</th></tr></thead>
                                             <tbody>
                                                 {products.map(p => (
                                                     <tr key={p._id}>
-                                                        <td style={{ fontWeight: 500 }}>{p.name} {p.expiryDate && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Exp: {new Date(p.expiryDate).toLocaleDateString()}</span>}</td>
+                                                        <td style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                            {p.image ? (
+                                                                <img src={p.image} alt={p.name} style={{ width: 40, height: 40, borderRadius: 'var(--radius-sm)', objectFit: 'contain', background: 'var(--bg-elevated)' }} />
+                                                            ) : (
+                                                                <div style={{ width: 40, height: 40, borderRadius: 'var(--radius-sm)', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📦</div>
+                                                            )}
+                                                            <div>
+                                                                <div style={{ fontWeight: 500 }}>{p.name}</div>
+                                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                                    {p.weight && <span>{p.weight}</span>}
+                                                                    {p.weight && p.expiryDate && <span> • </span>}
+                                                                    {p.expiryDate && <span>Exp: {new Date(p.expiryDate).toLocaleDateString()}</span>}
+                                                                </div>
+                                                            </div>
+                                                        </td>
                                                         <td><span className="badge badge-blue">{p.category}</span></td>
                                                         <td style={{ color: 'var(--accent)', fontWeight: 700 }}>₹{p.price}</td>
-                                                        <td><span style={{ color: p.stock < 5 ? 'var(--danger)' : 'var(--text-primary)', fontWeight: 600 }}>{p.stock} {p.unit}</span></td>
+                                                        <td><span style={{ color: p.stock < 5 ? 'var(--danger)' : 'var(--text-primary)', fontWeight: 600 }}>{p.stock} units</span></td>
                                                         <td>{p.salesCount}</td>
+                                                        <td>
+                                                            <button 
+                                                                className="btn btn-secondary btn-sm" 
+                                                                onClick={() => {
+                                                                    setNewProduct({
+                                                                        _id: p._id,
+                                                                        name: p.name,
+                                                                        price: p.price.toString(),
+                                                                        stock: p.stock.toString(),
+                                                                        category: p.category,
+                                                                        unit: p.unit || 'piece',
+                                                                        weight: p.weight || '',
+                                                                        barcode: p.barcode || '',
+                                                                        image: p.image || '',
+                                                                        description: p.description || '',
+                                                                        expiryDate: p.expiryDate ? new Date(p.expiryDate).toISOString().split('T')[0] : ''
+                                                                    } as any);
+                                                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                                }}
+                                                            >
+                                                                ✏️ Edit
+                                                            </button>
+                                                        </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -582,7 +746,7 @@ export default function SellerDashboard() {
                                 <div className="card" style={{ maxWidth: '460px' }}>
                                     <h3 style={{ marginBottom: '8px' }}>Scan Product Barcode</h3>
                                     <p className="text-muted" style={{ marginBottom: '20px', fontSize: '0.875rem' }}>
-                                        Start the camera, point it at the barcode, then click <strong>Capture</strong> when it's in frame.
+                                        Start the camera, point it at the barcode, then click <strong>Capture</strong> when it&apos;s in frame.
                                     </p>
 
                                     {/* Live camera preview */}
@@ -599,18 +763,27 @@ export default function SellerDashboard() {
                                     {/* Hidden canvas used for single-frame decode */}
                                     <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                                         {!scanning ? (
-                                            <button className="btn btn-primary" onClick={startBarcodeScanner}>📷 Start Camera</button>
+                                            <>
+                                                <button className="btn btn-primary" onClick={startBarcodeScanner}>📷 Start Camera</button>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <span className="text-muted" style={{ fontSize: '0.875rem' }}>or</span>
+                                                    <label className="btn btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
+                                                        📁 Upload Image
+                                                        <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+                                                    </label>
+                                                </div>
+                                            </>
                                         ) : (
                                             <>
                                                 <button className="btn btn-primary" onClick={captureAndDecode} disabled={capturing} style={{ flex: 2 }}>
-                                                    {capturing ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Decoding...</> : '📸 Capture Barcode'}
+                                                    {capturing ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Processing...</> : '📸 Capture'}
                                                 </button>
                                                 <button className="btn btn-danger" onClick={stopScanner}>⏹ Stop</button>
                                             </>
                                         )}
-                                        <button className="btn btn-secondary" onClick={() => setTab('inventory')}>← Inventory</button>
+                                        <button className="btn btn-secondary" onClick={() => { stopScanner(); setTab('inventory'); }} style={{ marginLeft: scanning ? 0 : 'auto' }}>← Back to Inventory</button>
                                     </div>
                                 </div>
                             </div>
@@ -670,6 +843,69 @@ export default function SellerDashboard() {
                     </>
                 )}
             </main>
+
+            {/* Custom Animated Modal for Existing Products */}
+            {existingProductPrompt && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 9999, animation: 'fadeIn 0.2s ease-out'
+                }}>
+                    <div style={{
+                        background: 'var(--bg-card)', padding: '32px', borderRadius: 'var(--radius-lg)',
+                        maxWidth: '440px', width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+                        border: '1px solid var(--border)', animation: 'slideUpModal 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
+                            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(255, 107, 53, 0.1)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', flexShrink: 0 }}>
+                                📦
+                            </div>
+                            <div>
+                                <h2 style={{ fontSize: '1.25rem', marginBottom: '4px' }}>Product Already Exists</h2>
+                                <p className="text-muted" style={{ fontSize: '0.875rem' }}>Barcode: {existingProductPrompt.barcode}</p>
+                            </div>
+                        </div>
+                        
+                        <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+                            {existingProductPrompt.product.image && (
+                                <img src={existingProductPrompt.product.image} alt="Product" style={{ width: 60, height: 60, objectFit: 'contain', borderRadius: 'var(--radius-sm)' }} />
+                            )}
+                            <div>
+                                <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>{existingProductPrompt.product.name}</div>
+                                <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                                    Current Stock: <strong style={{ color: 'var(--text-primary)' }}>{existingProductPrompt.product.stock} units</strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p style={{ marginBottom: '24px', fontSize: '0.95rem', lineHeight: 1.5 }}>
+                            Would you like to instantly increase the stock by 1, or edit the full details of this product manually?
+                        </p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <button className="btn btn-primary btn-lg" onClick={() => handlePromptAction('increase')} style={{ width: '100%', justifyContent: 'center' }}>
+                                ➕ Fast Stock (+1)
+                            </button>
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button className="btn btn-secondary" onClick={() => handlePromptAction('edit')} style={{ flex: 1, justifyContent: 'center' }}>
+                                    ✏️ Edit Details
+                                </button>
+                                <button className="btn" onClick={() => handlePromptAction('cancel')} style={{ flex: 1, justifyContent: 'center', background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {/* Add required keyframes if not globally available, usually better to put in globals.css, but for encapsulation we use inline style tag */}
+                    <style dangerouslySetInnerHTML={{__html: `
+                        @keyframes slideUpModal {
+                            from { opacity: 0; transform: translateY(20px) scale(0.98); }
+                            to { opacity: 1; transform: translateY(0) scale(1); }
+                        }
+                    `}} />
+                </div>
+            )}
         </div>
     );
 }

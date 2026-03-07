@@ -8,11 +8,12 @@ const productSchema = new mongoose.Schema(
         originalPrice: { type: Number, min: 0 },
         stock: { type: Number, required: true, min: 0, default: 0 },
         unit: { type: String, default: 'piece' }, // kg, litre, piece, pack
+        weight: { type: String }, // e.g., "250g", "1L" - distinct from physical piece stock
         category: { type: String, required: true, trim: true },
         subCategory: { type: String, default: '' },
         barcode: { type: String, default: '', index: true },
-        image: { type: String, default: '' },
-        expiryDate: { type: Date }, // For food/perishable categories
+        image: { type: String }, // Stores image URL or base64
+        expiryDate: { type: Date }, // Optional for all products now
         shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
         location: {
             type: { type: String, enum: ['Point'], default: 'Point' },
