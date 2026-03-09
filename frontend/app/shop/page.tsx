@@ -19,6 +19,7 @@ export default function ShopPage() {
     const [loading, setLoading] = useState(false);
     const [searchMode, setSearchMode] = useState<'text' | 'intent'>('text');
     const [expandedKeywords, setExpandedKeywords] = useState<string[]>([]);
+    const [intentModelUsed, setIntentModelUsed] = useState<string | null>(null);
     const [availableShops, setAvailableShops] = useState<any[]>([]);
     const [selectedShops, setSelectedShops] = useState<string[]>([]);
     const [categoriesList, setCategoriesList] = useState<string[]>([]);
@@ -87,6 +88,7 @@ export default function ShopPage() {
                 if (catParam) intentResults = intentResults.filter((r: any) => cats.some(c => r.product?.category?.toLowerCase() === c.toLowerCase()));
                 setProducts(intentResults.map((r: any) => ({ ...r.product, distance: r.product.distance })));
                 setExpandedKeywords(data.expandedKeywords || []);
+                setIntentModelUsed(data.modelUsed || null);
             } else {
                 const { data } = await api.get('/products/search', { params: { q, category: catParam, shopId: shopParam, limit: 500, lat, lng, nearbyOnly: effectiveNearby } });
                 setProducts(data.products || []);
@@ -171,6 +173,11 @@ export default function ShopPage() {
                             <div style={{ marginTop: '14px', display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
                                 <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>🧠 Searching for:</span>
                                 {expandedKeywords.map(k => <span key={k} className="badge badge-green">{k}</span>)}
+                                {intentModelUsed && (
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', opacity: 0.55, marginLeft: '4px' }}>
+                                        via {intentModelUsed}
+                                    </span>
+                                )}
                             </div>
                         )}
                         {/* Live result count signal */}

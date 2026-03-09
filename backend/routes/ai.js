@@ -7,7 +7,10 @@ const { HfInference } = require('@huggingface/inference');
 
 const hf = process.env.HF_TOKEN ? new HfInference(process.env.HF_TOKEN) : null;
 
+const aiRouter = require('../services/aiRouter');
+
 const router = express.Router();
+// Kept for embeddings only — text generation goes through aiRouter
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ─────────────────────────────────────────────
@@ -72,10 +75,10 @@ router.post('/recipe-agent', protect, requireRole('buyer'), async (req, res) => 
 
         let ingredients = [];
         let usedFallback = false;
+        let modelUsed = null;
 
-        // --- Try Gemini first ---
+        // --- Try Gemini via multi-model router (auto-fallback across models) ---
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const systemPrompt = `You are a smart grocery shopping assistant. 
 The user will describe a meal, recipe, or need in natural language.
 Extract a list of grocery items with quantities needed.
@@ -90,12 +93,12 @@ Rules:
 - amountText should be the textual quantity required (e.g. "500g", "2 pieces")
 - If the request is not food/grocery related, return an empty array []`;
 
-            const result = await model.generateContent([systemPrompt, `User request: ${prompt}`]);
-            const text = result.response.text().trim();
-            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            const { text, modelUsed: m } = await aiRouter.generateText([systemPrompt, `User request: ${prompt}`]);
+            modelUsed = m;
+            const jsonMatch = text.trim().match(/\[[\s\S]*\]/);
             ingredients = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
         } catch (aiErr) {
-            // 429 rate limit or any Gemini error — fallback to HF then regex
+            // ALL Gemini models exhausted — fallback to HF then regex
             const isRateLimit = aiErr.message?.includes('429') || aiErr.message?.includes('quota') || aiErr.message?.includes('Too Many Requests');
             console.warn(`AI recipe-agent fallback (${isRateLimit ? 'rate-limit' : 'error'}):`, aiErr.message?.slice(0, 80));
             usedFallback = true;
@@ -184,7 +187,7 @@ Rules:
             }
         }
 
-        res.json({ success: true, prompt, ingredients, cartItems, notFound, fallback: usedFallback });
+        res.json({ success: true, prompt, ingredients, cartItems, notFound, fallback: usedFallback, modelUsed });
     } catch (err) {
         console.error('Critical AI recipe agent error:', err);
         // Guarantee no 500 error toast on the frontend
@@ -200,9 +203,10 @@ router.post('/intent-search', async (req, res) => {
 
         let keywords = [];
         let usedFallback = false;
+        let modelUsed = null;
 
+        // --- Try Gemini via multi-model router (auto-fallback across models) ---
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const searchPrompt = `You are a smart search assistant for a grocery/pharmacy/daily needs marketplace.
 Expand the following user query into specific product keywords to search for.
 Respond ONLY with a valid JSON array of strings (max 8 keywords), no markdown:
@@ -214,12 +218,13 @@ Examples:
 "healthy breakfast" → ["oats", "granola", "milk", "banana", "eggs", "whole wheat bread"]
 
 User query: "${query}"`;
-            const result = await model.generateContent(searchPrompt);
-            const text = result.response.text().trim();
-            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            const { text, modelUsed: m } = await aiRouter.generateText(searchPrompt);
+            modelUsed = m;
+            const jsonMatch = text.trim().match(/\[[\s\S]*\]/);
             keywords = jsonMatch ? JSON.parse(jsonMatch[0]) : [query];
         } catch (aiErr) {
-            console.warn('Gemini intent-search fallback:', aiErr.message?.slice(0, 80));
+            // ALL Gemini models exhausted — fallback to HF then regex
+            console.warn('AI Router: all models exhausted for intent-search:', aiErr.message?.slice(0, 80));
             usedFallback = true;
 
             if (hf) {
@@ -319,7 +324,7 @@ User query: "${query}"`;
         const results = Array.from(productMatchMap.values())
             .sort((a, b) => b.count - a.count || (b.product.salesCount || 0) - (a.product.salesCount || 0));
 
-        res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback });
+        res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback, modelUsed: modelUsed || null });
     } catch (err) {
         console.error('Critical intent search error:', err);
         res.json({ success: true, query: req.body.query, expandedKeywords: [], count: 0, results: [], fallback: true });

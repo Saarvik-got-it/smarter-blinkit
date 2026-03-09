@@ -19,7 +19,7 @@ export default function AIAgentPage() {
     const { api, addMultipleToCart, user, toast } = useApp();
     const [prompt, setPrompt] = useState('');
     const [loading, setLoading] = useState(false);
-    const [results, setResults] = useState<{ cartItems: CartSuggestion[]; notFound: any[]; ingredients: any[]; fallback?: boolean } | null>(null);
+    const [results, setResults] = useState<{ cartItems: CartSuggestion[]; notFound: any[]; ingredients: any[]; fallback?: boolean; modelUsed?: string | null } | null>(null);
     const [selected, setSelected] = useState<Set<number>>(new Set());
     const [nearbyOnly, setNearbyOnly] = useState(true);
     const [availableShops, setAvailableShops] = useState<any[]>([]);
@@ -213,10 +213,17 @@ export default function AIAgentPage() {
                                     </div>
                                 )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                                    <h2 style={{ fontSize: '1.2rem' }}>
-                                        Found {results.cartItems.length} ingredient{results.cartItems.length !== 1 ? 's' : ''}
-                                        {results.notFound.length > 0 && <span className="badge badge-red" style={{ marginLeft: 10, fontSize: '0.75rem' }}>{results.notFound.length} not found</span>}
-                                    </h2>
+                                    <div>
+                                        <h2 style={{ fontSize: '1.2rem', marginBottom: '2px' }}>
+                                            Found {results.cartItems.length} ingredient{results.cartItems.length !== 1 ? 's' : ''}
+                                            {results.notFound.length > 0 && <span className="badge badge-red" style={{ marginLeft: 10, fontSize: '0.75rem' }}>{results.notFound.length} not found</span>}
+                                        </h2>
+                                        {results.modelUsed && (
+                                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', opacity: 0.65, marginTop: '2px' }}>
+                                                Generated using {results.modelUsed}
+                                            </div>
+                                        )}
+                                    </div>
                                     {results.cartItems.length > 0 && (
                                         <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                                             <button className="btn btn-primary" onClick={addSelectedToCart}>
