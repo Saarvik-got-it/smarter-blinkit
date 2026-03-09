@@ -139,6 +139,70 @@ router.put('/me', protect, async (req, res) => {
     }
 });
 
+// POST /api/auth/addresses - Add a new saved address
+router.post('/addresses', protect, async (req, res) => {
+    try {
+        const { tag, address, city, state, pincode, coordinates } = req.body;
+        const user = await User.findById(req.user._id);
+        
+        user.savedAddresses.push({
+            tag: tag || 'Other',
+            address: address || '',
+            city: city || '',
+            state: state || '',
+            pincode: pincode || '',
+            coordinates: coordinates || [0, 0]
+        });
+
+        // If this is their first address or main location is empty/unset, set it as default
+        if (user.location.coordinates[0] === 0 && user.location.coordinates[1] === 0) {
+            const newAddr = user.savedAddresses[user.savedAddresses.length - 1];
+            user.location = { ...newAddr.toObject() };
+        }
+
+        await user.save();
+        res.json({ success: true, user, message: 'Address saved successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// PUT /api/auth/addresses/active - Set a saved address as active
+router.put('/addresses/active', protect, async (req, res) => {
+    try {
+        const { addressId } = req.body;
+        const user = await User.findById(req.user._id);
+        
+        const addr = user.savedAddresses.id(addressId);
+        if (!addr) return res.status(404).json({ success: false, message: 'Address not found' });
+
+        user.location = { ...addr.toObject() };
+        delete user.location._id; // Remove subdocument id
+        
+        await user.save();
+        res.json({ success: true, user, message: 'Active delivery address updated' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// DELETE /api/auth/addresses/:id - Delete a saved address
+router.delete('/addresses/:id', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        
+        const addr = user.savedAddresses.id(req.params.id);
+        if (!addr) return res.status(404).json({ success: false, message: 'Address not found' });
+
+        user.savedAddresses.pull(addr._id);
+        await user.save();
+        
+        res.json({ success: true, user, message: 'Address removed' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // POST /api/auth/reset-password-request (Mock)
 router.post('/reset-password-request', async (req, res) => {
     try {

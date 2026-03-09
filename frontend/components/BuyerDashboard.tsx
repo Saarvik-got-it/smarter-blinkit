@@ -14,6 +14,8 @@ export default function BuyerDashboard() {
     const [updatingProfile, setUpdatingProfile] = useState(false);
     const [loadingLocation, setLoadingLocation] = useState(false);
     const [loadingPincode, setLoadingPincode] = useState(false);
+    const [addingAddress, setAddingAddress] = useState(false);
+    const [newAddrTag, setNewAddrTag] = useState('Home');
     const router = useRouter();
 
     useEffect(() => {
@@ -154,6 +156,51 @@ export default function BuyerDashboard() {
         }
     };
 
+    const handleSaveNewAddress = async () => {
+        setUpdatingProfile(true);
+        try {
+            let coords = profileForm.location?.coordinates || [0, 0];
+            const payload = {
+                tag: newAddrTag,
+                address: profileForm.address,
+                city: profileForm.city,
+                state: profileForm.state,
+                pincode: profileForm.pincode,
+                coordinates: coords
+            };
+            const { data } = await api.post('/auth/addresses', payload);
+            updateUser(data.user);
+            setAddingAddress(false);
+            setProfileForm({ name: user?.name, phone: user?.phone, address: '', city: '', state: '', pincode: '', location: null });
+            toast('Address added to Address Book', 'success');
+        } catch (err: any) {
+            toast(err?.response?.data?.message || 'Failed to add address', 'error');
+        } finally {
+            setUpdatingProfile(false);
+        }
+    };
+
+    const handleSetActiveAddress = async (addressId: string) => {
+        try {
+            const { data } = await api.put('/auth/addresses/active', { addressId });
+            updateUser(data.user);
+            toast('Active delivery address updated', 'success');
+        } catch (err: any) {
+            toast(err?.response?.data?.message || 'Failed to switch address', 'error');
+        }
+    };
+
+    const handleDeleteAddress = async (addressId: string) => {
+        if (!confirm('Are you sure you want to delete this address?')) return;
+        try {
+            const { data } = await api.delete(`/auth/addresses/${addressId}`);
+            updateUser(data.user);
+            toast('Address removed', 'success');
+        } catch (err: any) {
+            toast(err?.response?.data?.message || 'Failed to delete address', 'error');
+        }
+    };
+
     useEffect(() => {
         api.get('/orders/my').then(r => setOrders(r.data.orders || [])).catch(() => { }).finally(() => setLoading(false));
     }, [api]);
@@ -206,50 +253,120 @@ export default function BuyerDashboard() {
                     </div>
                 ) : activeTab === 'account' ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '600px' }}>
-                        {/* Edit Profile Card */}
+                        {/* Address Book */}
                         <div className="card" style={{ padding: '32px' }}>
-                            <h3 style={{ marginBottom: '20px' }}>Edit Profile</h3>
-                            <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div className="form-group">
-                                    <label className="form-label">Full Name</label>
-                                    <input className="form-input" placeholder="Your Name" value={profileForm.name} onChange={e => setProfileForm((f: any) => ({ ...f, name: e.target.value }))} required />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h3 style={{ margin: 0 }}>📍 Address Book</h3>
+                                {!addingAddress && (
+                                    <button className="btn btn-primary btn-sm" onClick={() => {
+                                        setAddingAddress(true);
+                                        setProfileForm({ name: user?.name, phone: user?.phone, address: '', city: '', state: '', pincode: '', location: null });
+                                    }}>+ Add New</button>
+                                )}
+                            </div>
+
+                            {Array.isArray(user?.savedAddresses) && user.savedAddresses.length > 0 && !addingAddress ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                                    {user.savedAddresses.map((addr: any) => {
+                                        // Compare coordinates to determine if active
+                                        const isActive = user.location?.coordinates && 
+                                                        addr.coordinates && 
+                                                        user.location.coordinates[0] === addr.coordinates[0] && 
+                                                        user.location.coordinates[1] === addr.coordinates[1] &&
+                                                        user.location.address === addr.address;
+                                        
+                                        return (
+                                            <div key={addr._id} style={{ 
+                                                border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`, 
+                                                background: isActive ? 'var(--accent-subtle)' : 'var(--bg-elevated)', 
+                                                padding: '16px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' 
+                                            }}>
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                        <span className={isActive ? "badge badge-green" : "badge"} style={{ background: isActive ? 'var(--accent)' : 'var(--bg-hover)', color: isActive ? '#000' : 'inherit' }}>{addr.tag}</span>
+                                                        {isActive && <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent)' }}>Active Delivery Address</span>}
+                                                    </div>
+                                                    <p style={{ fontSize: '0.9rem', marginBottom: '4px', maxWidth: '300px', lineHeight: 1.4 }}>{addr.address}</p>
+                                                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{addr.city}, {addr.state} {addr.pincode}</p>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    {!isActive && <button className="btn btn-secondary btn-sm" onClick={() => handleSetActiveAddress(addr._id)}>Set Active</button>}
+                                                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => handleDeleteAddress(addr._id)}>🗑</button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                                <div className="form-group">
-                                    <label className="form-label">Phone Number</label>
-                                    <input className="form-input" placeholder="+91 98765..." value={profileForm.phone} onChange={e => setProfileForm((f: any) => ({ ...f, phone: e.target.value }))} />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Street Address</label>
-                                    <input className="form-input" placeholder="Street, landmark, floor..." value={profileForm.address} onChange={e => setProfileForm((f: any) => ({ ...f, address: e.target.value }))} required />
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
+                            ) : !addingAddress && (
+                                <p className="text-muted" style={{ marginBottom: '24px' }}>No saved addresses yet.</p>
+                            )}
+
+                            {/* Add/Edit Address Form */}
+                            {(addingAddress || (!user?.savedAddresses?.length)) && (
+                                <form onSubmit={e => { e.preventDefault(); addingAddress ? handleSaveNewAddress() : handleUpdateProfile(e); }} style={{ display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--bg-elevated)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                                    <h4 style={{ margin: 0 }}>{addingAddress ? 'Add New Address' : 'Update Profile & Location'}</h4>
+                                    
+                                    {!addingAddress && (
+                                        <>
+                                            <div className="form-group">
+                                                <label className="form-label">Full Name</label>
+                                                <input className="form-input" placeholder="Your Name" value={profileForm.name} onChange={e => setProfileForm((f: any) => ({ ...f, name: e.target.value }))} required />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Phone Number</label>
+                                                <input className="form-input" placeholder="+91 98765..." value={profileForm.phone} onChange={e => setProfileForm((f: any) => ({ ...f, phone: e.target.value }))} />
+                                            </div>
+                                            <hr style={{ border: 'none', borderTop: '1px dashed var(--border)', margin: '8px 0' }} />
+                                        </>
+                                    )}
+
+                                    {addingAddress && (
+                                        <div className="form-group">
+                                            <label className="form-label">Address Tag</label>
+                                            <select className="form-input" value={newAddrTag} onChange={(e) => setNewAddrTag(e.target.value)}>
+                                                <option value="Home">Home</option>
+                                                <option value="Work">Work</option>
+                                                <option value="Other">Other</option>
+                                            </select>
+                                        </div>
+                                    )}
+
                                     <div className="form-group">
-                                        <label className="form-label">PIN Code</label>
-                                        <div style={{ position: 'relative' }}>
-                                            <input className="form-input" placeholder="600001" value={profileForm.pincode} onChange={handlePincodeChange} required maxLength={6} />
-                                            {loadingPincode && <div className="spinner" style={{ position: 'absolute', right: '12px', top: '10px', width: '16px', height: '16px' }} />}
+                                        <label className="form-label">Street Address</label>
+                                        <input className="form-input" placeholder="Street, landmark, floor..." value={profileForm.address} onChange={e => setProfileForm((f: any) => ({ ...f, address: e.target.value }))} required />
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
+                                        <div className="form-group">
+                                            <label className="form-label">PIN Code</label>
+                                            <div style={{ position: 'relative' }}>
+                                                <input className="form-input" placeholder="600001" value={profileForm.pincode} onChange={handlePincodeChange} required maxLength={6} />
+                                                {loadingPincode && <div className="spinner" style={{ position: 'absolute', right: '12px', top: '10px', width: '16px', height: '16px' }} />}
+                                            </div>
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">City</label>
+                                            <input className="form-input" placeholder="Bengaluru" value={profileForm.city} onChange={e => setProfileForm((f: any) => ({ ...f, city: e.target.value }))} required />
                                         </div>
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">City</label>
-                                        <input className="form-input" placeholder="Bengaluru" value={profileForm.city} onChange={e => setProfileForm((f: any) => ({ ...f, city: e.target.value }))} required />
+                                        <label className="form-label">State</label>
+                                        <input className="form-input" placeholder="Karnataka" value={profileForm.state} onChange={e => setProfileForm((f: any) => ({ ...f, state: e.target.value }))} required />
                                     </div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">State</label>
-                                    <input className="form-input" placeholder="Karnataka" value={profileForm.state} onChange={e => setProfileForm((f: any) => ({ ...f, state: e.target.value }))} required />
-                                </div>
-                                <div className="form-group" style={{ marginBottom: '16px' }}>
-                                    <label className="form-label">Exact GPS Location</label>
-                                    <button type="button" onClick={handleGetLocation} disabled={loadingLocation} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: profileForm.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${profileForm.location ? 'var(--accent)' : 'var(--border)'}`, color: profileForm.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
-                                        {loadingLocation ? 'Detecting...' : profileForm.location ? '📍 Coordinates Mapped' : '📍 Auto-Detect Location'}
-                                    </button>
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Pinpoint precision helps us show the most relevant nearby shops.</p>
-                                </div>
-                                <button type="submit" className="btn btn-primary" disabled={updatingProfile}>
-                                    {updatingProfile ? 'Saving...' : 'Save Profile Details'}
-                                </button>
-                            </form>
+                                    <div className="form-group" style={{ marginBottom: '16px' }}>
+                                        <label className="form-label">Exact GPS Location</label>
+                                        <button type="button" onClick={handleGetLocation} disabled={loadingLocation} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: profileForm.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${profileForm.location ? 'var(--accent)' : 'var(--border)'}`, color: profileForm.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
+                                            {loadingLocation ? 'Detecting...' : profileForm.location ? '📍 Coordinates Mapped' : '📍 Auto-Detect Location'}
+                                        </button>
+                                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Pinpoint precision helps us show the most relevant nearby shops.</p>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        {addingAddress && <button type="button" className="btn btn-secondary" onClick={() => setAddingAddress(false)} style={{ flex: 1 }}>Cancel</button>}
+                                        <button type="submit" className="btn btn-primary" disabled={updatingProfile} style={{ flex: addingAddress ? 1 : 'none' }}>
+                                            {updatingProfile ? 'Saving...' : addingAddress ? 'Save Address' : 'Update Core Profile'}
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
                         </div>
 
                         {/* Danger Zone */}

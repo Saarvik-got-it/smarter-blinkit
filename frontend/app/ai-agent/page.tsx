@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Navbar from '@/components/Navbar';
 import CartSidebar from '@/components/CartSidebar';
 import { useApp } from '@/lib/context';
@@ -12,20 +12,40 @@ interface CartSuggestion {
 }
 
 export default function AIAgentPage() {
-    const { api, addToCart, user, toast } = useApp();
+    const { api, addMultipleToCart, user, toast } = useApp();
     const [prompt, setPrompt] = useState('');
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<{ cartItems: CartSuggestion[]; notFound: any[]; ingredients: any[]; fallback?: boolean } | null>(null);
     const [selected, setSelected] = useState<Set<number>>(new Set());
+    const [nearbyOnly, setNearbyOnly] = useState(true);
+    const [availableShops, setAvailableShops] = useState<any[]>([]);
+    const [selectedShop, setSelectedShop] = useState('');
 
     const examples = ['Make pizza for 4 people', 'Biryani for 6 people', 'Healthy breakfast for the week', 'I have a cold, suggest remedies', 'Movie night snacks'];
+
+    // Fetch shops for the filter once
+    useEffect(() => {
+        api.get('/shops/all').then((r) => setAvailableShops(r.data.shops || [])).catch(() => { });
+    }, [api]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!prompt.trim()) return;
         setLoading(true); setResults(null);
         try {
-            const { data } = await api.post('/ai/recipe-agent', { prompt });
+            const lat = user?.location?.coordinates?.[1];
+            const lng = user?.location?.coordinates?.[0];
+            const effectiveNearby = selectedShop ? false : nearbyOnly;
+            
+            const payload = { 
+                prompt, 
+                lat, 
+                lng, 
+                nearbyOnly: effectiveNearby, 
+                shopId: selectedShop || undefined 
+            };
+            
+            const { data } = await api.post('/ai/recipe-agent', payload);
             setResults(data);
             const allIndices = new Set<number>(data.cartItems.map((_: any, i: number) => i));
             setSelected(allIndices);
@@ -36,14 +56,23 @@ export default function AIAgentPage() {
 
     const addSelectedToCart = () => {
         if (!user) { toast('Please login first', 'error'); return; }
-        let count = 0;
+        const itemsToAdd: any[] = [];
         results?.cartItems.forEach((item, index) => {
             if (selected.has(index)) {
-                addToCart({ productId: item.bestMatch._id, name: item.bestMatch.name, price: item.bestMatch.price, quantity: item.ingredient.packsToBuy, image: item.bestMatch.image, shopId: item.bestMatch.shopId?._id, shopName: item.bestMatch.shopId?.name });
-                count++;
+                itemsToAdd.push({
+                    productId: item.bestMatch._id,
+                    name: item.bestMatch.name,
+                    price: item.bestMatch.price,
+                    quantity: item.ingredient.packsToBuy,
+                    image: item.bestMatch.image,
+                    shopId: item.bestMatch.shopId?._id,
+                    shopName: item.bestMatch.shopId?.name
+                });
             }
         });
-        toast(`${count} items added to cart! 🎉`, 'success');
+        if (itemsToAdd.length > 0) {
+            addMultipleToCart(itemsToAdd);
+        }
     };
 
     const toggleItem = (index: number) => setSelected(s => { const n = new Set(s); if (n.has(index)) n.delete(index); else n.add(index); return n; });
@@ -80,7 +109,27 @@ export default function AIAgentPage() {
                                     style={{ resize: 'none' }}
                                 />
                             </div>
-                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+
+                            {/* Filters */}
+                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginTop: '4px' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, marginRight: '8px' }}>Filters:</span>
+
+                                <select className="form-select" style={{ minWidth: '180px' }} value={selectedShop} onChange={e => setSelectedShop(e.target.value)}>
+                                    <option value="">All Shops</option>
+                                    {availableShops.map(shop => <option key={shop._id} value={shop._id}>🏪 {shop.name}</option>)}
+                                </select>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                                    <input type="checkbox" id="nearbyOnly" checked={nearbyOnly} onChange={e => setNearbyOnly(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
+                                    <label htmlFor="nearbyOnly" style={{ fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>Nearby Only (50km)</label>
+                                </div>
+
+                                {selectedShop && (
+                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedShop('')}>Clear</button>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '4px' }}>
                                 <button type="submit" className="btn btn-primary" disabled={loading || !prompt.trim()}>
                                     {loading ? '⏳ Thinking...' : '🧠 Find Ingredients'}
                                 </button>

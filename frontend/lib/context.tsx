@@ -41,6 +41,7 @@ interface User {
         state?: string;
         pincode?: string;
     };
+    savedAddresses?: any[];
 }
 interface CartItem { productId: string; name: string; price: number; quantity: number; image: string; shopId: string; shopName?: string; }
 
@@ -55,6 +56,7 @@ interface AppContextType {
     updateUser: (user: User) => void;
     deleteAccount: () => Promise<boolean>;
     addToCart: (item: CartItem) => void;
+    addMultipleToCart: (items: CartItem[]) => void;
     removeFromCart: (productId: string) => void;
     updateQty: (productId: string, delta: number) => void;
     clearCart: () => void;
@@ -175,6 +177,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         toast(`${item.name} added to cart`);
     };
 
+    const addMultipleToCart = (items: CartItem[]) => {
+        setCart(c => {
+            let newCart = [...c];
+            items.forEach(item => {
+                const existingIndex = newCart.findIndex(x => x.productId === item.productId);
+                if (existingIndex >= 0) {
+                    newCart[existingIndex] = { ...newCart[existingIndex], quantity: newCart[existingIndex].quantity + (item.quantity || 1) };
+                } else {
+                    newCart.push({ ...item, quantity: item.quantity || 1 });
+                }
+            });
+            return newCart;
+        });
+        setCartOpen(true);
+        if (items.length === 1) {
+            toast(`${items[0].name} added to cart`);
+        } else if (items.length > 1) {
+            const names = items.map(i => i.name).join(', ');
+            toast(`${names} added to cart`);
+        }
+    };
+
     const removeFromCart = (productId: string) => setCart(c => c.filter(x => x.productId !== productId));
 
     const updateQty = (productId: string, delta: number) => {
@@ -190,7 +214,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!hydrated) return null;
 
     return (
-        <AppContext.Provider value={{ user, token, cart, cartOpen, login, register, logout, setUserFromToken, updateUser, deleteAccount, addToCart, removeFromCart, updateQty, clearCart, setCartOpen, cartTotal, cartCount, api: API, toast, toasts }}>
+        <AppContext.Provider value={{ user, token, cart, cartOpen, login, register, logout, setUserFromToken, updateUser, deleteAccount, addToCart, addMultipleToCart, removeFromCart, updateQty, clearCart, setCartOpen, cartTotal, cartCount, api: API, toast, toasts }}>
             {children}
             {/* Toast container */}
             <div className="toast-container">

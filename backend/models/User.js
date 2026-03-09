@@ -17,6 +17,16 @@ const userSchema = new mongoose.Schema(
             pincode: { type: String, default: '' },
             country: { type: String, default: 'India' },
         },
+        savedAddresses: [{
+            tag: { type: String, default: 'Home' }, // e.g., 'Home', 'Work', 'Other'
+            type: { type: String, enum: ['Point'], default: 'Point' },
+            coordinates: { type: [Number], default: [0, 0] },
+            address: { type: String, default: '' },
+            city: { type: String, default: '' },
+            state: { type: String, default: '' },
+            pincode: { type: String, default: '' },
+            country: { type: String, default: 'India' },
+        }],
         avatar: { type: String, default: '' },
         faceDescriptor: { type: [Number], default: [] }, // face-api.js descriptor
         isActive: { type: Boolean, default: true },

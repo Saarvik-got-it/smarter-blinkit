@@ -568,6 +568,24 @@ h4 {
   transform: translateX(0);
 }
 
+.cart-sidebar.maximized {
+  width: 100vw;
+  border-left: none;
+}
+
+.cart-sidebar-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin: 0 auto;
+  width: 100%;
+  transition: max-width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cart-sidebar.maximized .cart-sidebar-container {
+  max-width: 900px;
+}
+
 .cart-header {
   padding: 20px 24px;
   border-bottom: 1px solid var(--border);
@@ -907,56 +925,60 @@ h4 {
 /* ── Toast ───────────────────────────────────────────────────── */
 .toast-container {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  bottom: 32px;
+  left: 32px;
+  right: auto;
   z-index: 500;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .toast {
-  padding: 14px 20px;
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  font-weight: 500;
-  box-shadow: var(--shadow-lg);
-  animation: slideIn 0.3s ease;
-  min-width: 280px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  animation: slideInLeft 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  min-width: 320px;
+  max-width: 480px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  backdrop-filter: blur(16px);
+  line-height: 1.4;
 }
 
 .toast-success {
-  background: var(--bg-elevated);
-  border: 1px solid var(--accent);
-  color: var(--accent);
+  background: rgba(10, 20, 15, 0.85);
+  border-left: 4px solid var(--accent);
+  color: #fff;
 }
 
 .toast-error {
-  background: var(--bg-elevated);
-  border: 1px solid var(--danger);
-  color: var(--danger);
+  background: rgba(20, 10, 10, 0.85);
+  border-left: 4px solid var(--danger);
+  color: #fff;
 }
 
 .toast-info {
-  background: var(--bg-elevated);
-  border: 1px solid var(--info);
-  color: var(--info);
+  background: rgba(10, 15, 20, 0.85);
+  border-left: 4px solid var(--info);
+  color: #fff;
 }
 
-@keyframes slideIn {
+@keyframes slideInLeft {
   from {
-    transform: translateX(100%);
+    transform: translateX(-120%) scale(0.95);
     opacity: 0;
   }
-
   to {
-    transform: translateX(0);
+    transform: translateX(0) scale(1);
     opacity: 1;
   }
 }
+
 
 /* ── Scroll ──────────────────────────────────────────────────── */
 ::-webkit-scrollbar {

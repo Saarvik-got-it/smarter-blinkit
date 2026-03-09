@@ -8,11 +8,8 @@ const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
     : null;
 
 export default function CartSidebar() {
-    const { cart, cartOpen, setCartOpen, removeFromCart, updateQty, cartTotal, user, api, toast, clearCart } = useApp();
-    const [step, setStep] = useState<'cart' | 'location' | 'payment' | 'processing' | 'success'>('cart');
-    const [address, setAddress] = useState('');
-    const [coords, setCoords] = useState<[number, number] | null>(null);
-    const [locating, setLocating] = useState(false);
+    const { cart, cartOpen, setCartOpen, removeFromCart, updateQty, addToCart, cartTotal, user, api, toast, clearCart } = useApp();
+    const [step, setStep] = useState<'cart' | 'payment' | 'processing' | 'success'>('cart');
     const [paymentMethod, setPaymentMethod] = useState<'card' | 'cod'>('card');
     const [paying, setPaying] = useState(false);
     const [stripe, setStripe] = useState<Stripe | null>(null);
@@ -20,12 +17,37 @@ export default function CartSidebar() {
     const cardMountRef = useRef<HTMLDivElement>(null);
     const [cardReady, setCardReady] = useState(false);
     const [cardError, setCardError] = useState('');
+    const [isMaximized, setIsMaximized] = useState(false);
 
-    // Refs to hold the latest card element (avoids stale closures in async handlers)
+    const [cartAnalysis, setCartAnalysis] = useState<any>(null);
+    const [analyzing, setAnalyzing] = useState(false);
+
+    // Refs to hold the latest card element
     const cardElementRef = useRef<StripeCardElement | null>(null);
     const cardMountedRef = useRef(false);
 
-    // Initialize Stripe once (only when entering payment step)
+    useEffect(() => {
+        if (cartOpen && cart.length > 0) {
+            setAnalyzing(true);
+            api.post('/cart/analyze', { 
+                items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })), 
+                location: user?.location?.coordinates && user.location.coordinates[0] !== 0 ? { coordinates: user.location.coordinates } : undefined 
+            })
+            .then(res => {
+                if (res.data.success) {
+                    setCartAnalysis(res.data.cartData);
+                }
+            })
+            .catch(err => {
+                console.error('Failed to analyze cart', err);
+            })
+            .finally(() => setAnalyzing(false));
+        } else if (cart.length === 0) {
+            setCartAnalysis(null);
+        }
+    }, [cart, cartOpen, user?.location, api]);
+
+    // Initialize Stripe once
     useEffect(() => {
         if (step === 'payment' && paymentMethod === 'card' && !stripe) {
             (async () => {
@@ -58,16 +80,14 @@ export default function CartSidebar() {
             card.on('ready', () => setCardReady(true));
             card.on('change', (e) => setCardError(e.error?.message || ''));
             setCardElement(card);
-            cardElementRef.current = card;       // Keep ref in sync
+            cardElementRef.current = card;       
             cardMountedRef.current = true;
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stripe, step, paymentMethod]);
 
-    // Cleanup: destroy card element ONLY when going back to cart/location
     useEffect(() => {
-        if (['cart', 'location'].includes(step) && cardMountedRef.current && cardElementRef.current) {
-            try { cardElementRef.current.destroy(); } catch { /* already destroyed */ }
+        if (step === 'cart' && cardMountedRef.current && cardElementRef.current) {
+            try { cardElementRef.current.destroy(); } catch { /* ignore */ }
             setCardElement(null);
             cardElementRef.current = null;
             setCardReady(false);
@@ -75,44 +95,27 @@ export default function CartSidebar() {
         }
     }, [step]);
 
-    const handleDetectLocation = () => {
-        if (!navigator.geolocation) {
-            toast('Geolocation is not supported by your browser', 'error');
-            return;
-        }
-        setLocating(true);
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-            setCoords([pos.coords.longitude, pos.coords.latitude]);
-            try {
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`);
-                const data = await res.json();
-                setAddress(data.display_name || 'Current Location detected');
-                toast('Location detected!', 'success');
-            } catch (err) {
-                setAddress(`Lat: ${pos.coords.latitude.toFixed(4)}, Lng: ${pos.coords.longitude.toFixed(4)}`);
-                toast('Coordinates found, but address lookup failed.', 'info');
-            } finally {
-                setLocating(false);
-            }
-        }, () => {
-            toast('Failed to get location. Please allow permissions.', 'error');
-            setLocating(false);
-        });
-    };
+
 
     const handleCheckout = async () => {
         if (!user) return;
         setPaying(true);
 
+        const activeSubtotal = cartAnalysis?.totals?.grandTotal || baseGrandTotal;
+
+        // Create the enriched items list properly for backend standard path
+        // The /orders POST expects original full cart format, but it does its own splitting inside.
+        // Wait, the backend /orders ALREADY calls cartSplitter. Yes! So we just send normal items array.
+        const orderItems = cart.map(i => ({ productId: i.productId, quantity: i.quantity }));
+
         try {
             if (paymentMethod === 'cod') {
-                // ── Cash on Delivery — No Stripe needed ──
                 setStep('processing');
                 const codPaymentId = `cod_${Date.now()}`;
                 await api.post('/orders', {
-                    items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
-                    deliveryAddress: address,
-                    deliveryLocation: coords ? { type: 'Point', coordinates: coords } : undefined,
+                    items: orderItems,
+                    deliveryAddress: user?.location?.address || 'Address not provided',
+                    deliveryLocation: user?.location?.coordinates ? { type: 'Point', coordinates: user.location.coordinates } : undefined,
                     paymentId: codPaymentId,
                     paymentMode: 'cod',
                 });
@@ -123,27 +126,21 @@ export default function CartSidebar() {
                 return;
             }
 
-            // ── Stripe Card Payment ──
-            // Read from ref (not state) to avoid stale closures
             const currentCard = cardElementRef.current;
             if (!stripe || !currentCard) {
-                console.error('[Stripe] Missing:', { stripe: !!stripe, cardElement: !!currentCard });
                 toast('Stripe is not ready. Please try again.', 'error');
                 setPaying(false);
                 return;
             }
 
-            // 1. Create PaymentIntent on backend
-            const { data: intentData } = await api.post('/payments/create-intent', { amount: grandTotal });
-            console.log('[Stripe] PaymentIntent created:', intentData.mode, intentData.paymentIntentId);
-
+            const { data: intentData } = await api.post('/payments/create-intent', { amount: activeSubtotal });
+            
             if (intentData.mode === 'mock') {
-                // Mock fallback if Stripe is not configured on backend
                 setStep('processing');
                 await api.post('/orders', {
-                    items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
-                    deliveryAddress: address,
-                    deliveryLocation: coords ? { type: 'Point', coordinates: coords } : undefined,
+                    items: orderItems,
+                    deliveryAddress: user?.location?.address || 'Address not provided',
+                    deliveryLocation: user?.location?.coordinates ? { type: 'Point', coordinates: user.location.coordinates } : undefined,
                     paymentId: intentData.paymentIntentId,
                     paymentMode: 'mock',
                 });
@@ -154,29 +151,23 @@ export default function CartSidebar() {
                 return;
             }
 
-            // 2. Confirm the card payment with Stripe.js
-            // CRITICAL: step stays as 'payment' here so the card element stays mounted in DOM
-            console.log('[Stripe] Confirming payment with card element...');
             const { error, paymentIntent } = await stripe.confirmCardPayment(intentData.clientSecret, {
                 payment_method: { card: currentCard },
             });
 
             if (error) {
-                console.error('[Stripe] confirmCardPayment error:', error);
                 toast(error.message || 'Payment failed', 'error');
                 setPaying(false);
                 return;
             }
 
-            console.log('[Stripe] Payment confirmed:', paymentIntent?.status);
             if (paymentIntent?.status === 'succeeded') {
-                // 3. Card confirmed! Now safe to switch step away from 'payment'
                 setStep('processing');
                 await api.post('/payments/verify', { paymentIntentId: paymentIntent.id });
                 await api.post('/orders', {
-                    items: cart.map(i => ({ productId: i.productId, quantity: i.quantity })),
-                    deliveryAddress: address,
-                    deliveryLocation: coords ? { type: 'Point', coordinates: coords } : undefined,
+                    items: orderItems,
+                    deliveryAddress: user?.location?.address || 'Address not provided',
+                    deliveryLocation: user?.location?.coordinates ? { type: 'Point', coordinates: user.location.coordinates } : undefined,
                     paymentId: paymentIntent.id,
                     paymentMode: 'stripe',
                 });
@@ -189,7 +180,6 @@ export default function CartSidebar() {
                 setPaying(false);
             }
         } catch (err: any) {
-            console.error('[Checkout] Full error:', err);
             const msg = err?.response?.data?.message || err?.message || 'Checkout failed';
             toast(msg, 'error');
             setPaying(false);
@@ -204,101 +194,183 @@ export default function CartSidebar() {
     };
 
     const deliveryFee = cartTotal > 500 ? 0 : 29;
-    const grandTotal = cartTotal + deliveryFee;
+    const baseGrandTotal = cartTotal + deliveryFee;
+
+    const displaySubtotals = cartAnalysis?.totals || { subtotal: cartTotal, deliveryFee, platformFee: 5, grandTotal: baseGrandTotal + 5 };
 
     return (
         <>
             {cartOpen && <div onClick={resetAndClose} className="sidebar-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 49, backdropFilter: 'blur(4px)' }} />}
-            <aside className={`cart-sidebar ${cartOpen ? 'open' : ''}`}>
-                <div className="cart-header">
-                    <h3>
-                        {step === 'cart' ? '🛒 My Cart' : step === 'location' ? '📍 Delivery Details' : step === 'payment' ? '💳 Payment' : step === 'processing' ? '⏳ Processing' : '✅ Order Placed'}
-                        {step === 'cart' && <span className="badge badge-green" style={{ fontSize: '0.75rem', marginLeft: 6 }}>{cart.length} items</span>}
-                    </h3>
-                    <button className="btn btn-ghost btn-sm" onClick={resetAndClose}>✕</button>
-                </div>
+            <aside className={`cart-sidebar ${cartOpen ? 'open' : ''} ${isMaximized ? 'maximized' : ''}`}>
+                <div className="cart-sidebar-container">
+                    <div className="cart-header">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <h3>
+                                {step === 'cart' ? '🛒 My Cart' : step === 'payment' ? '💳 Payment' : step === 'processing' ? '⏳ Processing' : '✅ Order Placed'}
+                                {step === 'cart' && <span className="badge badge-green" style={{ fontSize: '0.75rem', marginLeft: 6 }}>{cart.length} items</span>}
+                            </h3>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setIsMaximized(!isMaximized)} title={isMaximized ? 'Restore Size' : 'Maximize Cart'}>
+                                {isMaximized ? '🗗' : '🗖'}
+                            </button>
+                            <button className="btn btn-ghost btn-sm" onClick={resetAndClose} title="Close Cart">✕</button>
+                        </div>
+                    </div>
 
                 {step === 'cart' && (
                     <>
-                        <div className="cart-items">
+                        <div className="cart-items" style={{ paddingBottom: '20px' }}>
                             {cart.length === 0 ? (
                                 <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
                                     <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🛒</div>
                                     <p>Your cart is empty</p>
                                     <p style={{ fontSize: '0.8rem', marginTop: '6px' }}>Start adding items from the shop!</p>
                                 </div>
-                            ) : (
-                                cart.map((item) => (
-                                    <div key={item.productId} className="cart-item">
-                                        <div className="cart-item-img">{item.image ? <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }} /> : '📦'}</div>
-                                        <div className="cart-item-info">
-                                            <div className="cart-item-name">{item.name}</div>
-                                            <div className="cart-item-price">₹{(item.price * item.quantity).toFixed(2)}</div>
-                                            <div className="qty-control" style={{ marginTop: 6 }}>
-                                                <button className="qty-btn" onClick={() => updateQty(item.productId, -1)}>−</button>
-                                                <span style={{ fontSize: '0.875rem', fontWeight: 600, minWidth: '20px', textAlign: 'center' }}>{item.quantity}</span>
-                                                <button className="qty-btn" onClick={() => updateQty(item.productId, 1)}>+</button>
+                            ) : analyzing && !cartAnalysis ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0' }}>
+                                    <div className="spinner" style={{ width: 32, height: 32, marginBottom: '16px' }}></div>
+                                    <p style={{ color: 'var(--text-muted)' }}>Analyzing cart for optimal delivery...</p>
+                                </div>
+                            ) : cartAnalysis && (
+                                <>
+                                    {/* Out of Stock / Unavailable Items */}
+                                    {cartAnalysis.unavailableItems?.length > 0 && (
+                                        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--danger)', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
+                                            <div style={{ color: 'var(--danger)', fontWeight: 600, fontSize: '0.9rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span>⚠️</span> Some items are currently unavailable
+                                            </div>
+                                            {cartAnalysis.unavailableItems.map((ui: any) => (
+                                                <div key={ui.productId} style={{ marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                        <img src={ui.image || '/placeholder.png'} alt={ui.name} style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', opacity: 0.5 }} />
+                                                        <div style={{ flex: 1 }}>
+                                                            <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textDecoration: 'line-through' }}>{ui.name}</div>
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{ui.reason}</div>
+                                                        </div>
+                                                        <button className="btn btn-ghost btn-sm" onClick={() => removeFromCart(ui.productId)} style={{ color: 'var(--text-primary)' }}>Remove</button>
+                                                    </div>
+                                                    
+                                                    {/* Replacements Dropdown */}
+                                                    {ui.replacements?.length > 0 && (
+                                                        <div style={{ marginTop: '12px', background: 'var(--bg-elevated)', padding: '10px', borderRadius: '8px' }}>
+                                                            <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '8px' }}>Suggested Replacements:</div>
+                                                            {ui.replacements.map((rep: any) => (
+                                                                <div key={rep._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                        <img src={rep.image || '/placeholder.png'} style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover' }} />
+                                                                        <span>{rep.name}</span>
+                                                                    </div>
+                                                                    <button className="btn btn-primary btn-sm" style={{ padding: '2px 8px', fontSize: '0.75rem', minHeight: 'unset', height: '24px' }}
+                                                                        onClick={() => {
+                                                                            removeFromCart(ui.productId);
+                                                                            addToCart({ productId: rep._id, name: rep.name, price: rep.price, quantity: ui.quantity, image: rep.image, shopId: '' });
+                                                                        }}>
+                                                                        Add
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Shop Groups */}
+                                    {cartAnalysis.shopGroups?.map((group: any, idx: number) => (
+                                        <div key={idx} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', marginBottom: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+                                                <div>
+                                                    <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        🏪 {group.shopName || 'Local Shop'}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                        Delivery in ~{group.deliveryEstimateMins} mins
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                                {group.items.map((item: any) => (
+                                                    <div key={item.productId} className="cart-item" style={{ border: 'none', padding: 0, margin: 0, background: 'transparent' }}>
+                                                        <div className="cart-item-img" style={{ width: 56, height: 56 }}>
+                                                            {item.image ? <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} /> : '📦'}
+                                                        </div>
+                                                        <div className="cart-item-info">
+                                                            <div className="cart-item-name" style={{ fontSize: '0.9rem' }}>{item.name}</div>
+                                                            <div className="cart-item-price" style={{ fontSize: '0.85rem' }}>₹{(item.price * item.quantity).toFixed(2)}</div>
+                                                            <div className="qty-control" style={{ marginTop: 8 }}>
+                                                                <button className="qty-btn" onClick={() => updateQty(item.productId, -1)}>−</button>
+                                                                <span style={{ fontSize: '0.875rem', fontWeight: 600, minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                                                                <button className="qty-btn" onClick={() => updateQty(item.productId, 1)}>+</button>
+                                                            </div>
+                                                        </div>
+                                                        <button className="btn btn-ghost btn-sm" onClick={() => removeFromCart(item.productId)} style={{ color: 'var(--text-muted)', alignSelf: 'flex-start' }}>✕</button>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
-                                        <button className="btn btn-ghost btn-sm" onClick={() => removeFromCart(item.productId)} style={{ color: 'var(--danger)', fontSize: '0.9rem', padding: '6px' }}>🗑</button>
-                                    </div>
-                                ))
+                                    ))}
+
+                                    {/* Cross Sell Intelligence */}
+                                    {cartAnalysis.crossSells?.length > 0 && (
+                                        <div style={{ marginTop: '24px', marginBottom: '16px' }}>
+                                            <h4 style={{ fontSize: '0.9rem', marginBottom: '12px', color: 'var(--text-primary)' }}>People also bought</h4>
+                                            <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '8px', msOverflowStyle: 'none', scrollbarWidth: 'none' }}>
+                                                {cartAnalysis.crossSells.map((cs: any) => (
+                                                    <div key={cs._id} style={{ minWidth: '120px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                                                        <img src={cs.image || '/placeholder.png'} style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginBottom: '8px' }} />
+                                                        <div style={{ fontSize: '0.75rem', fontWeight: 500, lineHeight: 1.2, marginBottom: '6px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{cs.name}</div>
+                                                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', marginBottom: '8px' }}>₹{cs.price}</div>
+                                                        <button className="btn btn-secondary btn-sm" style={{ width: '100%', fontSize: '0.75rem', padding: '4px' }}
+                                                            onClick={() => addToCart({ productId: cs._id, name: cs.name, price: cs.price, quantity: 1, image: cs.image, shopId: '' })}>
+                                                            + Add
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
-                        {cart.length > 0 && (
-                            <div className="cart-footer">
+
+                        {cart.length > 0 && cartAnalysis && (
+                            <div className="cart-footer" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)', paddingTop: '16px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                     <span className="text-muted" style={{ fontSize: '0.85rem' }}>Subtotal</span>
-                                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{cartTotal.toFixed(2)}</span>
+                                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{displaySubtotals.subtotal.toFixed(2)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                    <span className="text-muted" style={{ fontSize: '0.85rem' }}>Platform Fee</span>
+                                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{displaySubtotals.platformFee.toFixed(2)}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                                     <span className="text-muted" style={{ fontSize: '0.85rem' }}>Delivery</span>
-                                    <span style={{ fontWeight: 600, fontSize: '0.95rem', color: deliveryFee === 0 ? 'var(--accent)' : 'inherit' }}>
-                                        {deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}
+                                    <span style={{ fontWeight: 600, fontSize: '0.95rem', color: displaySubtotals.deliveryFee === 0 ? 'var(--accent)' : 'inherit' }}>
+                                        {displaySubtotals.deliveryFee === 0 ? 'FREE' : `₹${displaySubtotals.deliveryFee.toFixed(2)}`}
                                     </span>
                                 </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', paddingTop: '8px', borderTop: '1px dashed var(--border)' }}>
-                                    <span style={{ fontWeight: 700 }}>Total</span>
-                                    <span style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--accent)' }}>₹{grandTotal.toFixed(2)}</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
+                                    <span style={{ fontWeight: 700 }}>To Pay</span>
+                                    <span style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--accent)' }}>₹{displaySubtotals.grandTotal.toFixed(2)}</span>
                                 </div>
-                                <button className="btn btn-primary w-full btn-lg" onClick={() => setStep('location')}>
-                                    Checkout →
+                                <button className="btn btn-primary w-full btn-lg" onClick={() => {
+                                    if (!user?.location?.address || (user.location.coordinates[0] === 0 && user.location.coordinates[1] === 0)) {
+                                        toast('Please select a delivery address in the top bar before checking out.', 'error');
+                                        return;
+                                    }
+                                    setStep('payment');
+                                }} style={{ boxShadow: '0 4px 12px rgba(var(--accent-rgb), 0.3)' }}>
+                                    Proceed to Checkout →
                                 </button>
                             </div>
                         )}
                     </>
                 )}
 
-                {step === 'location' && (
-                    <div className="cart-items" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        <div className="form-group">
-                            <label className="form-label">Delivery Address</label>
-                            <textarea
-                                className="form-input"
-                                rows={3}
-                                placeholder="Enter full address, floor, landmark etc."
-                                value={address}
-                                onChange={e => setAddress(e.target.value)}
-                            />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <div className="divider" style={{ flex: 1, margin: 0 }} />
-                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>OR</span>
-                            <div className="divider" style={{ flex: 1, margin: 0 }} />
-                        </div>
-                        <button className="btn btn-secondary w-full" onClick={handleDetectLocation} disabled={locating}>
-                            {locating ? <span className="spinner" style={{ width: 16, height: 16 }} /> : '📍'}
-                            {locating ? ' Detecting...' : 'Auto-Detect Current Location'}
-                        </button>
 
-                        <div style={{ marginTop: 'auto', display: 'flex', gap: '10px' }}>
-                            <button className="btn btn-secondary" onClick={() => setStep('cart')} style={{ flex: 1 }}>Back</button>
-                            <button className="btn btn-primary" onClick={() => setStep('payment')} disabled={!address.trim()} style={{ flex: 2 }}>
-                                Continue to Payment
-                            </button>
-                        </div>
-                    </div>
-                )}
 
                 {step === 'payment' && (
                     <div className="cart-items" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -373,22 +445,22 @@ export default function CartSidebar() {
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                 <span className="text-muted">Subtotal ({cart.length} items)</span>
-                                <span style={{ fontWeight: 600 }}>₹{cartTotal.toFixed(2)}</span>
+                                <span style={{ fontWeight: 600 }}>₹{displaySubtotals.subtotal.toFixed(2)}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                 <span className="text-muted">Delivery</span>
-                                <span style={{ fontWeight: 600, color: deliveryFee === 0 ? 'var(--accent)' : 'inherit' }}>
-                                    {deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}
+                                <span style={{ fontWeight: 600, color: displaySubtotals.deliveryFee === 0 ? 'var(--accent)' : 'inherit' }}>
+                                    {displaySubtotals.deliveryFee === 0 ? 'FREE' : `₹${displaySubtotals.deliveryFee.toFixed(2)}`}
                                 </span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
-                                <span style={{ fontWeight: 700 }}>Total</span>
-                                <span style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--accent)' }}>₹{grandTotal.toFixed(2)}</span>
+                                <span style={{ fontWeight: 700 }}>Total To Pay</span>
+                                <span style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--accent)' }}>₹{displaySubtotals.grandTotal.toFixed(2)}</span>
                             </div>
                         </div>
 
                         <div style={{ marginTop: 'auto', display: 'flex', gap: '10px' }}>
-                            <button className="btn btn-secondary" onClick={() => { setStep('location'); }} style={{ flex: 1 }} disabled={paying}>Back</button>
+                            <button className="btn btn-secondary" onClick={() => { setStep('cart'); }} style={{ flex: 1 }} disabled={paying}>Back</button>
                             <button
                                 className="btn btn-primary"
                                 onClick={handleCheckout}
@@ -397,7 +469,7 @@ export default function CartSidebar() {
                             >
                                 {paying
                                     ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Processing...</>
-                                    : paymentMethod === 'cod' ? '🛵 Place Order (COD)' : `💳 Pay ₹${grandTotal.toFixed(2)}`
+                                    : paymentMethod === 'cod' ? '🛵 Place Order (COD)' : `💳 Pay ₹${displaySubtotals.grandTotal.toFixed(2)}`
                                 }
                             </button>
                         </div>
@@ -446,7 +518,7 @@ export default function CartSidebar() {
                                 padding: '8px 16px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)',
                                 border: '1px solid var(--border)', fontSize: '0.8rem'
                             }}>
-                                📍 {address.slice(0, 30)}{address.length > 30 ? '...' : ''}
+                                📍 {user?.location?.address?.slice(0, 30)}{user?.location?.address && user.location.address.length > 30 ? '...' : ''}
                             </div>
                         </div>
                         <button className="btn btn-primary" style={{ marginTop: '32px' }} onClick={resetAndClose}>
@@ -455,6 +527,7 @@ export default function CartSidebar() {
                     </div>
                 )}
 
+                </div>
             </aside>
         </>
     );

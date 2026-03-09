@@ -35,6 +35,8 @@ app.use(express.urlencoded({ extended: true }));
 // Attach io to requests
 app.use((req, _, next) => { req.io = io; next(); });
 
+const cartRoutes = require('./routes/cart');
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
@@ -43,6 +45,7 @@ app.use('/api/shops', shopRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/cart', cartRoutes);
 
 app.get('/api/health', (_, res) => res.json({ status: 'OK', time: new Date() }));
 

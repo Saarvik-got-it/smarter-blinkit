@@ -29,14 +29,27 @@ async function generateEmbedding(text) {
 // Shared helper: regex search for a single keyword across product fields
 // Uses regex (not $text) so partial/multi-word terms like "ginger tea" work correctly
 // ─────────────────────────────────────────────
-async function searchByKeyword(kw, limit = 6) {
+async function searchByKeyword(kw, limit = 6, filters = {}) {
     const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const rx = new RegExp(escaped, 'i');
-    return Product.find({
+    
+    let query = {
         $or: [{ name: rx }, { description: rx }, { category: rx }, { barcode: rx }],
         isAvailable: true,
         stock: { $gt: 0 },
-    })
+    };
+
+    if (filters.shopId) query.shopId = filters.shopId;
+    if (filters.lat && filters.lng && filters.nearbyOnly) {
+        query.location = {
+            $near: {
+                $geometry: { type: 'Point', coordinates: [parseFloat(filters.lng), parseFloat(filters.lat)] },
+                $maxDistance: 50000
+            }
+        };
+    }
+
+    return Product.find(query)
         .populate('shopId', 'name location rating')
         .sort({ salesCount: -1 })
         .limit(limit);
@@ -115,19 +128,29 @@ Rules:
 
         for (const ingredient of ingredients) {
             // ✅ Use regex search FIRST for exact ingredient matches (prevents weird semantic substitutions)
-            let products = await searchByKeyword(ingredient.searchQuery, 3);
+            let products = await searchByKeyword(ingredient.searchQuery, 3, req.body);
 
             // Fallback to highly-confident semantic vector search if no exact text match exists
             if (!products.length) {
                 const queryVector = await generateEmbedding(ingredient.searchQuery);
                 if (queryVector) {
-                    const semanticResults = await neo4jService.semanticSearch(queryVector, 3, 0.70); // High threshold
+                    const semanticResults = await neo4jService.semanticSearch(queryVector, 20, 0.70); // High threshold
                     const productIds = semanticResults.map(r => r.id);
-                    products = await Product.find({
+                    let q = {
                         _id: { $in: productIds },
                         isAvailable: true,
                         stock: { $gt: 0 }
-                    }).populate('shopId', 'name location rating');
+                    };
+                    if (req.body.shopId) q.shopId = req.body.shopId;
+                    if (req.body.lat && req.body.lng && req.body.nearbyOnly === true) {
+                        q.location = {
+                            $near: {
+                                $geometry: { type: 'Point', coordinates: [parseFloat(req.body.lng), parseFloat(req.body.lat)] },
+                                $maxDistance: 50000
+                            }
+                        };
+                    }
+                    products = await Product.find(q).populate('shopId', 'name location rating');
 
                     // Sort to match the Neo4j semantic similarity score order
                     products.sort((a, b) => productIds.indexOf(a._id.toString()) - productIds.indexOf(b._id.toString()));
