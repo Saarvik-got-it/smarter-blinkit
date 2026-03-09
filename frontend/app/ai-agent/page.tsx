@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import Navbar from '@/components/Navbar';
 import CartSidebar from '@/components/CartSidebar';
 import { useApp } from '@/lib/context';
+import MultiSelectDropdown from '@/components/MultiSelectDropdown';
 
 interface CartSuggestion {
     ingredient: { item: string; packsToBuy: number; amountText: string; searchQuery: string };
@@ -19,7 +20,7 @@ export default function AIAgentPage() {
     const [selected, setSelected] = useState<Set<number>>(new Set());
     const [nearbyOnly, setNearbyOnly] = useState(true);
     const [availableShops, setAvailableShops] = useState<any[]>([]);
-    const [selectedShop, setSelectedShop] = useState('');
+    const [selectedShops, setSelectedShops] = useState<string[]>([]);
 
     const examples = ['Make pizza for 4 people', 'Biryani for 6 people', 'Healthy breakfast for the week', 'I have a cold, suggest remedies', 'Movie night snacks'];
 
@@ -35,14 +36,15 @@ export default function AIAgentPage() {
         try {
             const lat = user?.location?.coordinates?.[1];
             const lng = user?.location?.coordinates?.[0];
-            const effectiveNearby = selectedShop ? false : nearbyOnly;
+            const shopParam = selectedShops.join(',');
+            const effectiveNearby = selectedShops.length > 0 ? false : nearbyOnly;
             
             const payload = { 
                 prompt, 
                 lat, 
                 lng, 
                 nearbyOnly: effectiveNearby, 
-                shopId: selectedShop || undefined 
+                shopId: shopParam || undefined 
             };
             
             const { data } = await api.post('/ai/recipe-agent', payload);
@@ -114,18 +116,21 @@ export default function AIAgentPage() {
                             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', marginTop: '4px' }}>
                                 <span style={{ fontSize: '0.9rem', fontWeight: 600, marginRight: '8px' }}>Filters:</span>
 
-                                <select className="form-select" style={{ minWidth: '180px' }} value={selectedShop} onChange={e => setSelectedShop(e.target.value)}>
-                                    <option value="">All Shops</option>
-                                    {availableShops.map(shop => <option key={shop._id} value={shop._id}>🏪 {shop.name}</option>)}
-                                </select>
+                                <MultiSelectDropdown
+                                    options={availableShops.map(shop => ({ value: shop._id, label: shop.name, emoji: '🏪' }))}
+                                    selected={selectedShops}
+                                    onChange={setSelectedShops}
+                                    placeholder="All Shops"
+                                    allLabel="All Shops"
+                                />
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
                                     <input type="checkbox" id="nearbyOnly" checked={nearbyOnly} onChange={e => setNearbyOnly(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
                                     <label htmlFor="nearbyOnly" style={{ fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>Nearby Only (50km)</label>
                                 </div>
 
-                                {selectedShop && (
-                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedShop('')}>Clear</button>
+                                {selectedShops.length > 0 && (
+                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedShops([])}>Clear</button>
                                 )}
                             </div>
 

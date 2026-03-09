@@ -39,7 +39,16 @@ async function searchByKeyword(kw, limit = 6, filters = {}) {
         stock: { $gt: 0 },
     };
 
-    if (filters.shopId) query.shopId = filters.shopId;
+    // Support comma-separated shopId values
+    if (filters.shopId) {
+        const ids = filters.shopId.split(',').map(s => s.trim()).filter(Boolean);
+        const { Types } = require('mongoose');
+        if (ids.length === 1) {
+            query.shopId = ids[0];
+        } else if (ids.length > 1) {
+            query.shopId = { $in: ids.map(id => new Types.ObjectId(id)) };
+        }
+    }
     if (filters.lat && filters.lng && filters.nearbyOnly) {
         query.location = {
             $near: {
@@ -141,7 +150,12 @@ Rules:
                         isAvailable: true,
                         stock: { $gt: 0 }
                     };
-                    if (req.body.shopId) q.shopId = req.body.shopId;
+                    // Support comma-separated shopIds
+                    if (req.body.shopId) {
+                        const mongoose = require('mongoose');
+                        const ids = req.body.shopId.split(',').map(s => s.trim()).filter(Boolean);
+                        q.shopId = ids.length === 1 ? ids[0] : { $in: ids.map(id => new mongoose.Types.ObjectId(id)) };
+                    }
                     if (req.body.lat && req.body.lng && req.body.nearbyOnly === true) {
                         q.location = {
                             $near: {
@@ -247,8 +261,12 @@ User query: "${query}"`;
 
             let queryObj = { _id: { $in: productIds }, isAvailable: true, stock: { $gt: 0 } };
 
-            // Apply filters
-            if (shopId) queryObj.shopId = shopId;
+            // Apply filters — support comma-separated shopIds
+            if (shopId) {
+                const mongoose = require('mongoose');
+                const ids = shopId.split(',').map(s => s.trim()).filter(Boolean);
+                queryObj.shopId = ids.length === 1 ? ids[0] : { $in: ids.map(id => new mongoose.Types.ObjectId(id)) };
+            }
             if (lat && lng && nearbyOnly === true) {
                 queryObj.location = {
                     $near: {
@@ -273,7 +291,11 @@ User query: "${query}"`;
                 stock: { $gt: 0 }
             };
 
-            if (shopId) kwQuery.shopId = shopId;
+            if (shopId) {
+                const mongoose = require('mongoose');
+                const ids = shopId.split(',').map(s => s.trim()).filter(Boolean);
+                kwQuery.shopId = ids.length === 1 ? ids[0] : { $in: ids.map(id => new mongoose.Types.ObjectId(id)) };
+            }
             if (lat && lng && nearbyOnly === true) {
                 kwQuery.location = {
                     $near: {

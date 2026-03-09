@@ -55,7 +55,6 @@ router.get('/search', async (req, res) => {
                     near: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
                     distanceField: 'distance',
                     spherical: true,
-                    // Convert meters to km in the pipeline later or here
                     distanceMultiplier: 0.001,
                     query: { isAvailable: true, stock: { $gt: 0 } },
                 }
@@ -64,12 +63,22 @@ router.get('/search', async (req, res) => {
             pipeline.push({ $match: { isAvailable: true, stock: { $gt: 0 } } });
         }
 
-        // 2. Filters
+        // 2. Filters — support comma-separated multi-values
         if (category) {
-            pipeline.push({ $match: { category: new RegExp(category, 'i') } });
+            const cats = category.split(',').map(c => c.trim()).filter(Boolean);
+            if (cats.length === 1) {
+                pipeline.push({ $match: { category: new RegExp(cats[0], 'i') } });
+            } else if (cats.length > 1) {
+                pipeline.push({ $match: { category: { $in: cats.map(c => new RegExp(c, 'i')) } } });
+            }
         }
         if (shopId) {
-            pipeline.push({ $match: { shopId: new mongoose.Types.ObjectId(shopId) } });
+            const shopIds = shopId.split(',').map(s => s.trim()).filter(Boolean);
+            if (shopIds.length === 1) {
+                pipeline.push({ $match: { shopId: new mongoose.Types.ObjectId(shopIds[0]) } });
+            } else if (shopIds.length > 1) {
+                pipeline.push({ $match: { shopId: { $in: shopIds.map(s => new mongoose.Types.ObjectId(s)) } } });
+            }
         }
 
         // 3. Text Search

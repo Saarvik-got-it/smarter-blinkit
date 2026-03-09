@@ -1,21 +1,23 @@
 'use client';
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
 import CartSidebar from '@/components/CartSidebar';
 import { useApp } from '@/lib/context';
+import MultiSelectDropdown from '@/components/MultiSelectDropdown';
 
 export default function ShopPage() {
     const { api, addToCart, user, toast } = useApp();
     const [products, setProducts] = useState<any[]>([]);
     const [query, setQuery] = useState('');
-    const [category, setCategory] = useState('');
+    const [categories, setCategories] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [searchMode, setSearchMode] = useState<'text' | 'intent'>('text');
     const [expandedKeywords, setExpandedKeywords] = useState<string[]>([]);
     const [availableShops, setAvailableShops] = useState<any[]>([]);
-    const [selectedShop, setSelectedShop] = useState('');
+    const [selectedShops, setSelectedShops] = useState<string[]>([]);
     const [categoriesList, setCategoriesList] = useState<string[]>([]);
     const [nearbyOnly, setNearbyOnly] = useState(true);
 
@@ -29,23 +31,25 @@ export default function ShopPage() {
         api.get('/products/categories').then((r) => setCategoriesList(r.data.categories || [])).catch(() => { });
     }, [api]);
 
-    const doSearch = async (q: string, cat: string, shop: string, nearby: boolean) => {
+    const doSearch = async (q: string, cats: string[], shops: string[], nearby: boolean) => {
         setLoading(true); setExpandedKeywords([]);
         try {
             const lat = user?.location?.coordinates?.[1];
             const lng = user?.location?.coordinates?.[0];
-            // When a specific shop is selected, bypass the nearby filter — distance doesn't matter
-            const effectiveNearby = shop ? false : nearby;
+            const catParam = cats.join(',');
+            const shopParam = shops.join(',');
+            // When specific shops are selected, bypass the nearby filter
+            const effectiveNearby = shops.length > 0 ? false : nearby;
 
             if (searchMode === 'intent' && q) {
-                const { data } = await api.post('/ai/intent-search', { query: q, lat, lng, nearbyOnly: effectiveNearby, shopId: shop || undefined });
+                const { data } = await api.post('/ai/intent-search', { query: q, lat, lng, nearbyOnly: effectiveNearby, shopId: shopParam || undefined });
                 let intentResults = data.results || [];
                 // Frontend-side category filtering for AI results
-                if (cat) intentResults = intentResults.filter((r: any) => r.product?.category === cat);
+                if (catParam) intentResults = intentResults.filter((r: any) => cats.some(c => r.product?.category?.toLowerCase() === c.toLowerCase()));
                 setProducts(intentResults.map((r: any) => ({ ...r.product, distance: r.product.distance })));
                 setExpandedKeywords(data.expandedKeywords || []);
             } else {
-                const { data } = await api.get('/products/search', { params: { q, category: cat, shopId: shop, limit: 500, lat, lng, nearbyOnly: effectiveNearby } });
+                const { data } = await api.get('/products/search', { params: { q, category: catParam, shopId: shopParam, limit: 500, lat, lng, nearbyOnly: effectiveNearby } });
                 setProducts(data.products || []);
             }
         } catch { } finally { setLoading(false); }
@@ -54,12 +58,12 @@ export default function ShopPage() {
     // Live sync search: Trigger doSearch whenever dependencies change, with a 300ms debounce
     useEffect(() => {
         const timer = setTimeout(() => {
-            doSearch(query, category, selectedShop, nearbyOnly);
+            doSearch(query, categories, selectedShops, nearbyOnly);
         }, 300);
         return () => clearTimeout(timer);
-    }, [query, category, selectedShop, searchMode, nearbyOnly, user]);
+    }, [query, categories, selectedShops, searchMode, nearbyOnly, user]);
 
-    const handleSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(query, category, selectedShop, nearbyOnly); };
+    const handleSearch = (e: React.FormEvent) => { e.preventDefault(); doSearch(query, categories, selectedShops, nearbyOnly); };
 
     return (
         <>
@@ -91,27 +95,33 @@ export default function ShopPage() {
                                 <button type="submit" className="search-btn">Search</button>
                             </div>
 
-                            {/* Filter Dialog / Row */}
-                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                                <span style={{ fontSize: '0.9rem', fontWeight: 600, marginRight: '8px' }}>Filters:</span>
+                            {/* Filter Row */}
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', background: 'var(--bg-card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, marginRight: '4px' }}>Filters:</span>
 
-                                <select className="form-select" style={{ minWidth: '180px' }} value={category} onChange={e => setCategory(e.target.value)}>
-                                    <option value="">All Categories</option>
-                                    {categoriesList.map(cat => <option key={cat} value={cat}>{getCategoryEmoji(cat)} {cat}</option>)}
-                                </select>
+                                <MultiSelectDropdown
+                                    options={categoriesList.map(cat => ({ value: cat, label: cat, emoji: getCategoryEmoji(cat) }))}
+                                    selected={categories}
+                                    onChange={setCategories}
+                                    placeholder="All Categories"
+                                    allLabel="All Categories"
+                                />
 
-                                <select className="form-select" style={{ minWidth: '180px' }} value={selectedShop} onChange={e => setSelectedShop(e.target.value)}>
-                                    <option value="">All Shops</option>
-                                    {availableShops.map(shop => <option key={shop._id} value={shop._id}>🏪 {shop.name}</option>)}
-                                </select>
+                                <MultiSelectDropdown
+                                    options={availableShops.map(shop => ({ value: shop._id, label: shop.name, emoji: '🏪' }))}
+                                    selected={selectedShops}
+                                    onChange={setSelectedShops}
+                                    placeholder="All Shops"
+                                    allLabel="All Shops"
+                                />
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
                                     <input type="checkbox" id="nearbyOnly" checked={nearbyOnly} onChange={e => setNearbyOnly(e.target.checked)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
                                     <label htmlFor="nearbyOnly" style={{ fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>Nearby Only (50km)</label>
                                 </div>
 
-                                {(category || selectedShop) && (
-                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setCategory(''); setSelectedShop(''); }}>Clear</button>
+                                {(categories.length > 0 || selectedShops.length > 0) && (
+                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setCategories([]); setSelectedShops([]); }}>Clear all</button>
                                 )}
                             </div>
                         </form>
@@ -135,23 +145,23 @@ export default function ShopPage() {
                             <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🔍</div>
                             <p>No products found. Try a different search.</p>
                         </div>
-                    ) : selectedShop ? (
+                    ) : selectedShops.length === 1 ? (
                         /* Single Shop View - Professional Grid */
                         <>
-                                <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
-                                            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>🏪 {products[0]?.shopId?.name || 'Local Shop'}</h2>
-                                            {products[0]?.distance !== undefined && (
-                                                <span style={{ fontSize: '0.8rem', color: products[0].distance > 50 ? 'var(--danger)' : 'var(--accent)', fontWeight: 700, background: products[0].distance > 50 ? 'rgba(255,59,48,0.1)' : 'rgba(0,210,106,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                                                    📍 {products[0].distance < 1 ? '< 1 km' : `${Math.round(products[0].distance)} km`} away
-                                                </span>
-                                            )}
-                                        </div>
-                                        <p className="text-muted">{products.length} products available</p>
+                            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+                                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>🏪 {products[0]?.shopId?.name || 'Local Shop'}</h2>
+                                        {products[0]?.distance !== undefined && (
+                                            <span style={{ fontSize: '0.8rem', color: products[0].distance > 50 ? 'var(--danger)' : 'var(--accent)', fontWeight: 700, background: products[0].distance > 50 ? 'rgba(255,59,48,0.1)' : 'rgba(0,210,106,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                                                📍 {products[0].distance < 1 ? '< 1 km' : `${Math.round(products[0].distance)} km`} away
+                                            </span>
+                                        )}
                                     </div>
-                                    <button onClick={() => setSelectedShop('')} className="btn btn-secondary btn-sm">← Back to all shops</button>
+                                    <p className="text-muted">{products.length} products available</p>
                                 </div>
+                                <button onClick={() => setSelectedShops([])} className="btn btn-secondary btn-sm">← Back to all shops</button>
+                            </div>
                             <div className="product-grid">
                                 {products.map(p => (
                                     <div key={p._id} className="product-card">
@@ -226,7 +236,7 @@ export default function ShopPage() {
                                                         )}
                                                     </div>
                                                 </div>
-                                                <button onClick={() => setSelectedShop(shop._id)} className="btn btn-ghost btn-sm" style={{ fontWeight: 600 }}>
+                                                <button onClick={() => setSelectedShops([shop._id])} className="btn btn-ghost btn-sm" style={{ fontWeight: 600 }}>
                                                     View all from this store →
                                                 </button>
                                             </div>
