@@ -130,6 +130,32 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 
 ---
 
+## 🗺️ Geo-Spatial Location Engine
+
+Smarter-Blinkit now features a pinpoint-accurate, interactive Map-Based Address Selection system powered by open-source technologies (Leaflet.js + OpenStreetMap + Nominatim API). This completely replaces the legacy pincode-only system, optimizing downstream shop-distance routing.
+
+### 1. Accurate Location Detection System
+*   **Auto-Detection**: The browser's GeoLocation API automatically pinpoints the user on load.
+*   **Draggable Pin**: Users can drag and drop the map marker to their exact doorstep. 
+*   **Reverse Geocoding**: As the pin moves, the Nominatim API reverse-geocodes the coordinates into a human-readable street address, city, and pincode in real-time.
+
+### 2. Map-Based Address Selection
+*   **Interactive Search**: A debounced (500ms) search bar allows users to search for landmarks, buildings, or areas. Search results instantly fly the map to the selected coordinate.
+*   **Recenter UX**: A floating "Use My Current Location" button allows users to quickly snap the map back to their GPS coordinates from anywhere in the world.
+*   **GeoJSON Storage**: All locations are saved in strict `GeoJSON` format (`{ type: "Point", coordinates: [lng, lat] }`) to maximize MongoDB spatial query performance during checkout.
+
+### 3. Updated 3-Step Registration Flow
+Registration is now broken into a streamlined 3-step wizard:
+1.  **General Details**: Name, Phone, Email, Role.
+2.  **Location Selection**: Fullscreen interactive `MapPicker` to accurately acquire the initial delivery address.
+3.  **Face ID Enrollment**: Frictionless biometric setup.
+
+### 4. Saved Addresses Feature
+*   **Address Book**: Buyers can save multiple delivery profiles (e.g., "Home", "Work", "Other") from their dashboard.
+*   **Global Context**: The `active` address is broadcast across the app, instantly affecting Cart distances, AI Recipe filters, and Stripe checkout deliveries. Adding or editing an address launches the same standardized Map Picker interface.
+
+---
+
 ## 🧠 AI Architecture & Fallbacks
 
 The Smarter-Blinkit platform utilizes a multi-layered AI architecture to guarantee intelligent search results even when primary third-party services (Google, Neo4j) are disconnected, rate-limited, or asleep.
@@ -280,6 +306,7 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 | 1 | Location Checkout & Mock Payments | ✅ Done |
 | 1 | Global Light/Dark Theme & Filters | ✅ Done |
 | 1 | Secure Admin User Dashboard | ✅ Done |
+
 | 2 | AI Recipe Agent (Gemini 2.0 Flash) | ✅ Done |
 | 2 | Neo4j Graph: BOUGHT_WITH | ✅ Done |
 | 2 | Neo4j Graph: SIMILAR_TO | ✅ Done |

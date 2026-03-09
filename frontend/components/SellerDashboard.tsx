@@ -7,6 +7,8 @@ import { BrowserMultiFormatReader } from '@zxing/browser';
 import { io } from 'socket.io-client';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import dynamic from 'next/dynamic';
+import MapPicker from '@/components/MapPicker';
+import type { MapLocationData } from '@/components/MapPickerBase';
 
 const MoneyMap = dynamic(() => import('@/components/MoneyMap'), { ssr: false });
 
@@ -29,6 +31,8 @@ export default function SellerDashboard() {
     const [loadingLocation, setLoadingLocation] = useState(false);
     const [loadingPincode, setLoadingPincode] = useState(false);
     const [catDropdownOpen, setCatDropdownOpen] = useState(false);
+    const [showMapSetup, setShowMapSetup] = useState(false);
+    const [showMapEdit, setShowMapEdit] = useState(false);
 
     // State for animated custom modal prompt when scanning dupes
     const [existingProductPrompt, setExistingProductPrompt] = useState<{ isOpen: boolean; product: any; barcode: string } | null>(null);
@@ -572,10 +576,10 @@ export default function SellerDashboard() {
                                 </div>
                             </div>
                             <div className="form-group">
-                                <button type="button" onClick={handleGetLocation} disabled={loadingLocation} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: shopSetup.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${shopSetup.location ? 'var(--accent)' : 'var(--border)'}`, color: shopSetup.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
-                                    {loadingLocation ? 'Detecting...' : shopSetup.location ? '📍 Exact Coordinates Mapped via GPS' : '📍 Auto-Detect Exact GPS Location'}
+                                <button type="button" onClick={() => setShowMapSetup(true)} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: shopSetup.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${shopSetup.location ? 'var(--accent)' : 'var(--border)'}`, color: shopSetup.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
+                                    {shopSetup.location ? '📍 Exact Coordinates Mapped' : '📍 Pinpoint Location on Map'}
                                 </button>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Auto-detect location to appear in nearby buyer searches.</p>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Pinpoint precision ensures you appear in nearby buyer searches.</p>
                             </div>
                             <button type="submit" className="btn btn-primary btn-lg" disabled={creatingShop} style={{ marginTop: '8px' }}>
                                 {creatingShop ? '⏳ Creating...' : '🚀 Launch My Shop'}
@@ -583,6 +587,32 @@ export default function SellerDashboard() {
                         </form>
                     </div>
                 </div>
+
+                {showMapSetup && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'var(--bg-card)', zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid var(--border)' }}>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setShowMapSetup(false)}>← Back</button>
+                            <span style={{ fontWeight: 600 }}>Pinpoint Shop Location</span>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <MapPicker onConfirm={(loc) => {
+                                setShopSetup((f: any) => ({
+                                    ...f,
+                                    address: loc.street || f.address || '',
+                                    city: loc.city || f.city || '',
+                                    state: loc.state || f.state || '',
+                                    pincode: loc.pincode || f.pincode || '',
+                                    location: {
+                                        type: 'Point',
+                                        coordinates: loc.coordinates,
+                                        address: loc.address
+                                    }
+                                }));
+                                setShowMapSetup(false);
+                            }} buttonText="Confirm Shop Location" initialCoords={shopSetup.location?.coordinates || undefined} />
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -1066,8 +1096,8 @@ export default function SellerDashboard() {
                                         </div>
                                         <div className="form-group" style={{ marginBottom: '16px' }}>
                                             <label className="form-label">Exact GPS Location</label>
-                                            <button type="button" onClick={handleEditGetLocation} disabled={editingLocation.loadingLoc} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: shopEdit.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${shopEdit.location ? 'var(--accent)' : 'var(--border)'}`, color: shopEdit.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
-                                                {editingLocation.loadingLoc ? 'Detecting...' : shopEdit.location ? '📍 Coordinates Mapped' : '📍 Auto-Detect Location'}
+                                            <button type="button" onClick={() => setShowMapEdit(true)} style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: shopEdit.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${shopEdit.location ? 'var(--accent)' : 'var(--border)'}`, color: shopEdit.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}>
+                                                {shopEdit.location ? '📍 Coordinates Mapped' : '📍 Pinpoint Location on Map'}
                                             </button>
                                             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>Pinpoint precision ensures you only receive orders from nearby buyers.</p>
                                         </div>
@@ -1167,6 +1197,33 @@ export default function SellerDashboard() {
                             to { opacity: 1; transform: translateY(0) scale(1); }
                         }
                     `}} />
+                </div>
+            )}
+
+            {showMapEdit && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'var(--bg-card)', zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid var(--border)' }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setShowMapEdit(false)}>← Back</button>
+                        <span style={{ fontWeight: 600 }}>Update Shop Location</span>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <MapPicker onConfirm={(loc) => {
+                            setShopEdit((f: any) => ({
+                                ...f,
+                                address: loc.street || f.address || '',
+                                city: loc.city || f.city || '',
+                                state: loc.state || f.state || '',
+                                pincode: loc.pincode || f.pincode || '',
+                                location: {
+                                    type: 'Point',
+                                    coordinates: loc.coordinates,
+                                    address: loc.address
+                                }
+                            }));
+                            setShowMapEdit(false);
+                            toast('Location updated on map! Save changes below.', 'success');
+                        }} buttonText="Confirm Location" initialCoords={shopEdit.location?.coordinates || undefined} />
+                    </div>
                 </div>
             )}
         </div>

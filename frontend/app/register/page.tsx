@@ -4,151 +4,55 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useApp } from '@/lib/context';
 import FaceRegister from '@/components/FaceRegister';
+import MapPicker from '@/components/MapPicker';
+import type { MapLocationData } from '@/components/MapPickerBase';
 
 export default function RegisterPage() {
     const { register, toast } = useApp();
     const router = useRouter();
     const [form, setForm] = useState<any>({
-        name: '', email: '', password: '', role: 'buyer', phone: '',
-        shopName: '', streetAddress: '', city: '', state: '', pincode: '', country: 'India',
+        name: '', email: '', password: '', role: 'buyer', phone: '', shopName: '',
+        streetAddress: '', city: '', state: '', pincode: '', country: 'India',
         location: null
     });
     const [loading, setLoading] = useState(false);
-    const [showFace, setShowFace] = useState(false);
-    const [loadingLocation, setLoadingLocation] = useState(false);
-    const [loadingPincode, setLoadingPincode] = useState(false);
-
-    const handleGetLocation = () => {
-        if (!navigator.geolocation) {
-            toast('Geolocation is not supported by your browser', 'error');
-            return;
-        }
-        setLoadingLocation(true);
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                const { latitude: lat, longitude: lon } = position.coords;
-
-                try {
-                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`);
-                    const data = await res.json();
-
-                    if (data && data.address) {
-                        const addr = data.address;
-                        const street = [addr.road, addr.suburb, addr.neighbourhood, addr.residential].filter(Boolean).join(', ') || '';
-                        const city = addr.city || addr.town || addr.village || addr.state_district || '';
-                        const state = addr.state || '';
-                        const pincode = addr.postcode || '';
-
-                        setForm((f: any) => ({
-                            ...f,
-                            streetAddress: street,
-                            city: city,
-                            state: state,
-                            pincode: pincode,
-                            location: {
-                                type: 'Point',
-                                coordinates: [lon, lat],
-                                address: data.display_name
-                            }
-                        }));
-                        toast('Location & Address mapped successfully!', 'success');
-                    } else {
-                        setForm((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
-                        toast('Coordinates mapped, but address details unavailable.', 'info');
-                    }
-                } catch (err) {
-                    setForm((f: any) => ({ ...f, location: { type: 'Point', coordinates: [lon, lat], address: 'Detected Location' } }));
-                    toast('Coordinates mapped (Geocoding failed).', 'info');
-                } finally {
-                    setLoadingLocation(false);
-                }
-            },
-            (err) => {
-                toast('Failed to get location: ' + err.message, 'error');
-                setLoadingLocation(false);
-            }
-        );
-    };
-
-    const handlePincodeChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const pin = e.target.value.replace(/\D/g, '');
-        setForm((f: any) => ({ ...f, pincode: pin }));
-
-        if (pin.length === 6) {
-            setLoadingPincode(true);
-            try {
-                const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
-                const data = await res.json();
-                if (data?.[0]?.Status === 'Success') {
-                    const postOffice = data[0].PostOffice[0];
-                    setForm((f: any) => ({
-                        ...f,
-                        city: postOffice.District,
-                        state: postOffice.State
-                    }));
-                    toast(`Mapped to ${postOffice.District}, ${postOffice.State}`, 'success');
-                }
-            } catch (err) {
-                console.warn('Pincode lookup failed');
-            } finally {
-                setLoadingPincode(false);
-            }
-        }
-    };
+    
+    // 1 = General Details, 2 = Location Map, 3 = Face ID
+    const [step, setStep] = useState<1 | 2 | 3>(1);
 
     const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
         setForm((f: any) => ({ ...f, [field]: e.target.value }));
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleStep1Submit = (e: React.FormEvent) => {
         e.preventDefault();
-        setLoading(true);
-        try {
-            let finalLocation = form.location;
+        setStep(2);
+    };
 
-            if (!finalLocation && form.streetAddress && form.city) {
-                const queriesToTry = [
-                    `${form.streetAddress}, ${form.city}, ${form.state}, ${form.pincode}, ${form.country}`,
-                    `${form.streetAddress}, ${form.city}, ${form.state}`,
-                    `${form.city}, ${form.state}, ${form.pincode}`,
-                    `${form.city}, ${form.state}`,
-                    form.city
-                ];
-
-                let found = false;
-                for (const q of queriesToTry) {
-                    if (!q || !q.trim()) continue;
-                    try {
-                        const query = encodeURIComponent(q);
-                        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}`);
-                        const data = await response.json();
-                        if (data && data.length > 0) {
-                            finalLocation = {
-                                type: 'Point',
-                                coordinates: [parseFloat(data[0].lon), parseFloat(data[0].lat)],
-                                address: data[0].display_name
-                            };
-                            found = true;
-                            break;
-                        }
-                    } catch { }
-                }
+    const handleLocationConfirm = async (loc: MapLocationData) => {
+        const finalForm = {
+            ...form,
+            streetAddress: loc.street || form.streetAddress, // fallback if empty
+            city: loc.city || form.city,
+            state: loc.state || form.state,
+            pincode: loc.pincode || form.pincode,
+            address: loc.address, // formatted full address
+            location: {
+                type: 'Point',
+                coordinates: loc.coordinates,
+                address: loc.address
             }
+        };
+        
+        setForm(finalForm);
+        setLoading(true);
 
-            const finalForm = {
-                ...form,
-                address: form.streetAddress,
-                location: finalLocation || {
-                    type: 'Point',
-                    coordinates: [0, 0],
-                    address: `${form.streetAddress}, ${form.city}, ${form.state}, ${form.pincode}, ${form.country}`.replace(/, ,/g, ',').trim()
-                }
-            };
-
+        try {
             await register(finalForm);
             toast('Account created! Now set up your Face ID 🎉', 'success');
-            setShowFace(true);
+            setStep(3);
         } catch (err: any) {
             toast(err?.response?.data?.message || 'Registration failed', 'error');
+            setStep(1); // send back to fix details
         } finally {
             setLoading(false);
         }
@@ -160,34 +64,45 @@ export default function RegisterPage() {
 
     return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', background: 'radial-gradient(ellipse at 50% 0%, rgba(0,210,106,0.08) 0%, transparent 60%)' }}>
-            <div style={{ width: '100%', maxWidth: '480px' }}>
+            <div style={{ width: '100%', maxWidth: step === 2 ? '800px' : '480px', transition: 'max-width 0.3s ease' }}>
                 {/* Logo */}
                 <div style={{ textAlign: 'center', marginBottom: '28px' }}>
                     <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
                         <div className="navbar-logo-icon" style={{ width: 48, height: 48, fontSize: 22 }}>⚡</div>
                         <span style={{ fontSize: '1.5rem', fontWeight: 800 }}>Smarter<span className="text-accent">Blinkit</span></span>
                     </Link>
-                    <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '8px' }}>Create Account</h1>
-                    <p className="text-muted" style={{ fontSize: '0.9rem' }}>Join the smarter marketplace</p>
+                    <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '8px' }}>
+                        {step === 1 ? 'Create Account' : step === 2 ? 'Set Delivery Location' : 'Setup Face ID'}
+                    </h1>
+                    <p className="text-muted" style={{ fontSize: '0.9rem' }}>
+                        {step === 1 ? 'Join the smarter marketplace' : step === 2 ? 'Pinpoint exact location for faster delivery' : 'Lightning fast logins'}
+                    </p>
                 </div>
 
                 {/* Step Indicator */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px', justifyContent: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: !showFace ? 'var(--accent)' : '#00d26a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#000' }}>
-                            {showFace ? '✓' : '1'}
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: step > 1 ? '#00d26a' : 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#000' }}>
+                            {step > 1 ? '✓' : '1'}
                         </div>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: !showFace ? 'var(--text-primary)' : 'var(--text-muted)' }}>Account Info</span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: step === 1 ? 'var(--text-primary)' : 'var(--text-muted)', display: step === 2 ? 'none' : 'inline' }}>Account Info</span>
                     </div>
-                    <div style={{ flex: 1, height: 2, background: showFace ? 'var(--accent)' : 'var(--border)', maxWidth: 60 }} />
+                    <div style={{ flex: 1, height: 2, background: step > 1 ? 'var(--accent)' : 'var(--border)', maxWidth: 60 }} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: showFace ? 'var(--accent)' : 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: showFace ? '#000' : 'var(--text-muted)' }}>2</div>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: showFace ? 'var(--text-primary)' : 'var(--text-muted)' }}>Face ID Setup</span>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: step > 2 ? '#00d26a' : step === 2 ? 'var(--accent)' : 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: step >= 2 ? '#000' : 'var(--text-muted)' }}>
+                            {step > 2 ? '✓' : '2'}
+                        </div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: step === 2 ? 'var(--text-primary)' : 'var(--text-muted)' }}>Location</span>
+                    </div>
+                    <div style={{ flex: 1, height: 2, background: step > 2 ? 'var(--accent)' : 'var(--border)', maxWidth: 60 }} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: step === 3 ? 'var(--accent)' : 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: step === 3 ? '#000' : 'var(--text-muted)' }}>3</div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: step === 3 ? 'var(--text-primary)' : 'var(--text-muted)', display: step === 2 ? 'none' : 'inline' }}>Face ID</span>
                     </div>
                 </div>
 
                 {/* Role Picker */}
-                {!showFace && (
+                {step === 1 && (
                     <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
                         {[{ v: 'buyer', icon: '🛒', label: 'Buyer', sub: 'Shop & explore' }, { v: 'seller', icon: '🏪', label: 'Seller', sub: 'Sell products' }].map(r => (
                             <button key={r.v} onClick={() => setForm((f: any) => ({ ...f, role: r.v }))} type="button"
@@ -200,9 +115,9 @@ export default function RegisterPage() {
                     </div>
                 )}
 
-                <div className="card" style={{ padding: '32px' }}>
-                    {!showFace ? (
-                        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="card" style={{ padding: step === 2 ? '2px' : '32px', overflow: 'hidden' }}>
+                    {step === 1 && (
+                        <form onSubmit={handleStep1Submit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                 <div className="form-group">
                                     <label className="form-label">Full Name</label>
@@ -210,7 +125,7 @@ export default function RegisterPage() {
                                 </div>
                                 <div className="form-group">
                                     <label className="form-label">Phone</label>
-                                    <input className="form-input" placeholder="+91 98765..." value={form.phone} onChange={set('phone')} />
+                                    <input className="form-input" placeholder="+91 98765..." value={form.phone} onChange={set('phone')} required />
                                 </div>
                             </div>
                             <div className="form-group">
@@ -228,68 +143,28 @@ export default function RegisterPage() {
                                 </div>
                             )}
 
-                            <div className="form-group">
-                                <label className="form-label">Street Address</label>
-                                <input className="form-input" placeholder="e.g. 12, MG Road, Landmark" value={form.streetAddress} onChange={set('streetAddress')} required />
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
-                                <div className="form-group">
-                                    <label className="form-label">PIN Code</label>
-                                    <div style={{ position: 'relative' }}>
-                                        <input className="form-input" placeholder="600001" value={form.pincode} onChange={handlePincodeChange} required maxLength={6} />
-                                        {loadingPincode && <div className="spinner" style={{ position: 'absolute', right: '12px', top: '10px', width: '16px', height: '16px' }} />}
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">City / District</label>
-                                    <input className="form-input" placeholder="Bengaluru" value={form.city} onChange={set('city')} required />
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
-                                <div className="form-group">
-                                    <label className="form-label">State</label>
-                                    <input className="form-input" placeholder="Karnataka" value={form.state} onChange={set('state')} required />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Country</label>
-                                    <select className="form-input" value={form.country} onChange={set('country')}>
-                                        <option value="India">India</option>
-                                        <option value="USA">USA</option>
-                                        <option value="UAE">UAE</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label className="form-label">Location (For faster delivery routing)</label>
-                                <button
-                                    type="button"
-                                    onClick={handleGetLocation}
-                                    disabled={loadingLocation}
-                                    style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', background: form.location ? 'var(--accent-subtle)' : 'var(--bg-elevated)', border: `1px solid ${form.location ? 'var(--accent)' : 'var(--border)'}`, color: form.location ? 'var(--accent)' : 'var(--text-primary)', cursor: 'pointer', fontWeight: 600, transition: 'var(--transition)' }}
-                                >
-                                    {loadingLocation ? 'Detecting...' : form.location ? '📍 Exact Coordinates Mapped via GPS' : '📍 Auto-Detect Exact GPS Location'}
-                                </button>
-                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 8 }}>If not auto-detected, we will geocode your typed address.</p>
-                            </div>
-
-                            {/* Face ID teaser */}
-                            <div style={{ padding: '12px', background: 'var(--accent-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--accent)', fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ fontSize: '1.3rem' }}>🪪</span>
-                                <span>Next step: <strong>Set up Face ID</strong> for instant future logins — takes just 5 seconds.</span>
-                            </div>
-                            <button type="submit" className="btn btn-primary btn-lg" disabled={loading} style={{ marginTop: '4px' }}>
-                                {loading ? 'Creating...' : 'Create Account & Set Up Face ID →'}
+                            <button type="submit" className="btn btn-primary btn-lg" style={{ marginTop: '12px' }}>
+                                Continue to Location 📍
                             </button>
                         </form>
-                    ) : (
+                    )}
+
+                    {step === 2 && (
+                        <div style={{ width: '100%', height: '600px', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ padding: '16px', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid var(--border)' }}>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setStep(1)}>← Back</button>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Move the pin to your exact delivery location</span>
+                            </div>
+                            <MapPicker onConfirm={handleLocationConfirm} buttonText={loading ? "Creating Account..." : "Confirm Location & Create Account"} />
+                        </div>
+                    )}
+
+                    {step === 3 && (
                         <FaceRegister userRole={form.role} onSkip={handleSkipFace} />
                     )}
                 </div>
 
-                {!showFace && (
+                {step === 1 && (
                     <p style={{ textAlign: 'center', marginTop: '20px', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
                         Already have an account?{' '}
                         <Link href="/login" style={{ color: 'var(--accent)', fontWeight: 600 }}>Sign in</Link>

@@ -138,13 +138,20 @@ export default function ShopPage() {
                     ) : selectedShop ? (
                         /* Single Shop View - Professional Grid */
                         <>
-                            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <div>
-                                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>🏪 {products[0]?.shopId?.name || 'Local Shop'}</h2>
-                                    <p className="text-muted">{products.length} products available</p>
+                                <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
+                                            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>🏪 {products[0]?.shopId?.name || 'Local Shop'}</h2>
+                                            {products[0]?.distance !== undefined && (
+                                                <span style={{ fontSize: '0.8rem', color: products[0].distance > 50 ? 'var(--danger)' : 'var(--accent)', fontWeight: 700, background: products[0].distance > 50 ? 'rgba(255,59,48,0.1)' : 'rgba(0,210,106,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                                                    📍 {products[0].distance < 1 ? '< 1 km' : `${Math.round(products[0].distance)} km`} away
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-muted">{products.length} products available</p>
+                                    </div>
+                                    <button onClick={() => setSelectedShop('')} className="btn btn-secondary btn-sm">← Back to all shops</button>
                                 </div>
-                                <button onClick={() => setSelectedShop('')} className="btn btn-secondary btn-sm">← Back to all shops</button>
-                            </div>
                             <div className="product-grid">
                                 {products.map(p => (
                                     <div key={p._id} className="product-card">
