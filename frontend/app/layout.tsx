@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/lib/context";
+import SmoothScroll from "@/components/SmoothScroll";
+import FloatingAIBubble from "@/components/FloatingAIBubble";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -14,7 +16,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={inter.variable}>
       <body>
-        <AppProvider>{children}</AppProvider>
+        <AppProvider>
+          <SmoothScroll>
+            {children}
+            <FloatingAIBubble />
+          </SmoothScroll>
+        </AppProvider>
       </body>
     </html>
   );

@@ -220,7 +220,11 @@ export default function CartSidebar() {
 
                 {step === 'cart' && (
                     <>
-                        <div className="cart-items" style={{ paddingBottom: '20px' }}>
+                        <div
+                            className="cart-items"
+                            style={{ paddingBottom: '20px' }}
+                            onWheel={(e) => { e.stopPropagation(); }}
+                        >
                             {cart.length === 0 ? (
                                 <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
                                     <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🛒</div>

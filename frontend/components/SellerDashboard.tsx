@@ -519,6 +519,13 @@ export default function SellerDashboard() {
 
     const totalRevenue = orders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0);
 
+    // Today's stats
+    const todayStr = new Date().toDateString();
+    const todayOrders = orders.filter((o: any) => new Date(o.createdAt).toDateString() === todayStr);
+    const todayRevenue = todayOrders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0);
+    const lowStockCount = products.filter(p => p.stock > 0 && p.stock < 5).length;
+    const outOfStockCount = products.filter(p => p.stock === 0).length;
+
     const sidebarLinks = [
         { id: 'overview', icon: '📊', label: 'Overview' },
         { id: 'inventory', icon: '📦', label: 'Inventory' },
@@ -646,6 +653,27 @@ export default function SellerDashboard() {
                                     <h1 style={{ fontSize: '1.75rem', marginBottom: '6px' }}>Seller Dashboard 🏪</h1>
                                     <p className="text-muted">{shop?.name} · {shop?.location?.address || 'No address set'}</p>
                                 </div>
+
+                                {/* Today's highlights */}
+                                <div className="today-grid">
+                                    <div className="today-card">
+                                        <div className="today-icon green">📦</div>
+                                        <div><div className="today-val">{todayOrders.length}</div><div className="today-lbl">Orders Today</div></div>
+                                    </div>
+                                    <div className="today-card">
+                                        <div className="today-icon blue">💸</div>
+                                        <div><div className="today-val">₹{todayRevenue.toFixed(0)}</div><div className="today-lbl">Revenue Today</div></div>
+                                    </div>
+                                    <div className="today-card">
+                                        <div className="today-icon orange">⚠️</div>
+                                        <div><div className="today-val">{lowStockCount}</div><div className="today-lbl">Low Stock Items</div></div>
+                                    </div>
+                                    <div className="today-card">
+                                        <div className="today-icon red">❌</div>
+                                        <div><div className="today-val">{outOfStockCount}</div><div className="today-lbl">Out of Stock</div></div>
+                                    </div>
+                                </div>
+
                                 <div className="stats-grid" style={{ marginBottom: '28px' }}>
                                     <div className="stat-card"><div className="stat-icon orange">📦</div><div className="stat-label">Total Products</div><div className="stat-value">{products.length}</div></div>
                                     <div className="stat-card"><div className="stat-icon green">💰</div><div className="stat-label">Total Revenue</div><div className="stat-value">₹{totalRevenue.toFixed(0)}</div></div>
@@ -678,6 +706,29 @@ export default function SellerDashboard() {
                                     ))}
                                     {products.length === 0 && <p className="text-muted" style={{ textAlign: 'center', padding: '20px' }}>No products yet. Add your first product!</p>}
                                 </div>
+
+                                {/* Recent orders */}
+                                {orders.length > 0 && (
+                                    <div className="card" style={{ padding: '20px', marginTop: '24px' }}>
+                                        <h3 style={{ marginBottom: '16px' }}>🕐 Recent Orders</h3>
+                                        {orders.slice(0, 5).map((o: any) => (
+                                            <div key={o._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                                                <div>
+                                                    <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>
+                                                        {o.buyerId?.name || 'Customer'} &nbsp;·&nbsp; {o.items?.length} item{o.items?.length !== 1 ? 's' : ''}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                        {new Date(o.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                    <span style={{ fontWeight: 700, color: 'var(--accent)' }}>₹{o.totalAmount?.toFixed(0)}</span>
+                                                    <span className="badge badge-green" style={{ fontSize: '0.7rem' }}>{o.status}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </>
                         )}
 
@@ -1010,56 +1061,104 @@ export default function SellerDashboard() {
                         )}
 
                         {tab === 'barcode' && (
-                            <div>
+                            <div className="tab-content-centered">
                                 <h2 style={{ marginBottom: '24px' }}>🔲 Barcode Scanner</h2>
-                                <div className="card" style={{ maxWidth: '460px' }}>
-                                    <h3 style={{ marginBottom: '8px' }}>Scan Product Barcode</h3>
-                                    <p className="text-muted" style={{ marginBottom: '20px', fontSize: '0.875rem' }}>
-                                        Start the camera, point it at the barcode, then click <strong>Capture</strong> when it&apos;s in frame.
-                                    </p>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: '24px', alignItems: 'start' }}>
+                                    {/* Scanner card */}
+                                    <div className="card" style={{ padding: '24px' }}>
+                                        <h3 style={{ marginBottom: '8px' }}>Scan Product Barcode</h3>
+                                        <p className="text-muted" style={{ marginBottom: '20px', fontSize: '0.875rem' }}>
+                                            Start the camera, point it at the barcode, then click <strong>Capture</strong> when it&apos;s in frame.
+                                        </p>
 
-                                    {/* Live camera preview */}
-                                    <div style={{ width: '100%', aspectRatio: '4/3', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', border: scanning ? '2px solid var(--accent)' : '2px solid var(--border)' }}>
-                                        <video ref={videoRef} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: scanning ? 'block' : 'none' }} />
-                                        {!scanning && <span style={{ fontSize: '3.5rem' }}>🔲</span>}
-                                        {scanning && (
-                                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '8px', background: 'rgba(0,0,0,0.55)', textAlign: 'center', fontSize: '0.75rem', color: '#fff' }}>
-                                                Aim at barcode, then click Capture ↓
-                                            </div>
-                                        )}
-                                    </div>
+                                        {/* Live camera preview */}
+                                        <div style={{ width: '100%', aspectRatio: '4/3', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', border: scanning ? '2px solid var(--accent)' : '2px solid var(--border)', transition: 'border-color 0.3s' }}>
+                                            <video ref={videoRef} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: scanning ? 'block' : 'none' }} />
+                                            {!scanning && <span style={{ fontSize: '3.5rem', opacity: 0.4 }}>🔲</span>}
+                                            {scanning && (
+                                                <>
+                                                    {/* Animated sweep line */}
+                                                    <div className="scanner-sweep-line" />
+                                                    {/* Corner marks */}
+                                                    <div className="scanner-corner sc-tl" />
+                                                    <div className="scanner-corner sc-tr" />
+                                                    <div className="scanner-corner sc-bl" />
+                                                    <div className="scanner-corner sc-br" />
+                                                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '8px', background: 'rgba(0,0,0,0.55)', textAlign: 'center', fontSize: '0.75rem', color: '#fff' }}>
+                                                        Aim at barcode · click Capture when ready
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
 
-                                    {/* Hidden canvas used for single-frame decode */}
-                                    <canvas ref={canvasRef} style={{ display: 'none' }} />
+                                        {/* Hidden canvas */}
+                                        <canvas ref={canvasRef} style={{ display: 'none' }} />
 
-                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                        {!scanning ? (
-                                            <>
-                                                <button className="btn btn-primary" onClick={startBarcodeScanner}>📷 Start Camera</button>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                            {!scanning ? (
+                                                <>
+                                                    <button className="btn btn-primary" onClick={startBarcodeScanner}>📷 Start Camera</button>
                                                     <span className="text-muted" style={{ fontSize: '0.875rem' }}>or</span>
                                                     <label className="btn btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
                                                         📁 Upload Image
                                                         <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
                                                     </label>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button className="btn btn-primary" onClick={captureAndDecode} disabled={capturing} style={{ flex: 2 }}>
+                                                        {capturing ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Processing...</> : '📸 Capture'}
+                                                    </button>
+                                                    <button className="btn btn-danger" onClick={stopScanner}>⏹ Stop</button>
+                                                </>
+                                            )}
+                                            <button className="btn btn-secondary" onClick={() => { stopScanner(); setTab('inventory'); }} style={{ marginLeft: scanning ? 0 : 'auto' }}>← Back to Inventory</button>
+                                        </div>
+                                    </div>
+
+                                    {/* Tips / instructions panel */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                        <div className="card" style={{ padding: '20px', borderLeft: '3px solid var(--accent)' }}>
+                                            <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ fontSize: '1.3rem' }}>💡</span> Scan Tips
+                                            </h4>
+                                            {[
+                                                'Hold the camera ~15–20 cm from the barcode.',
+                                                'Ensure good lighting — avoid shadows on the barcode.',
+                                                'Keep the phone/camera steady before clicking Capture.',
+                                                'If the scan fails, try uploading a clear photo instead.',
+                                            ].map((tip, i) => (
+                                                <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < 3 ? '1px solid var(--border)' : 'none', fontSize: '0.85rem' }}>
+                                                    <span style={{ color: 'var(--accent)', fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                                                    <span>{tip}</span>
                                                 </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button className="btn btn-primary" onClick={captureAndDecode} disabled={capturing} style={{ flex: 2 }}>
-                                                    {capturing ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Processing...</> : '📸 Capture'}
-                                                </button>
-                                                <button className="btn btn-danger" onClick={stopScanner}>⏹ Stop</button>
-                                            </>
-                                        )}
-                                        <button className="btn btn-secondary" onClick={() => { stopScanner(); setTab('inventory'); }} style={{ marginLeft: scanning ? 0 : 'auto' }}>← Back to Inventory</button>
+                                            ))}
+                                        </div>
+
+                                        <div className="card" style={{ padding: '20px' }}>
+                                            <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ fontSize: '1.3rem' }}>📑</span> Supported Formats
+                                            </h4>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                {['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E', 'Code 128', 'Code 39', 'QR Code', 'PDF417'].map(fmt => (
+                                                    <span key={fmt} className="badge badge-blue" style={{ fontSize: '0.72rem' }}>{fmt}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="card" style={{ padding: '20px', background: 'var(--accent-subtle)', border: '1px solid rgba(0,210,106,0.2)' }}>
+                                            <h4 style={{ marginBottom: '8px', color: 'var(--accent)' }}>🧠 What happens after scan?</h4>
+                                            <p style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                                                We look up the barcode in our database first. If found, you can update stock instantly. If new, we try to auto-fill product details from external sources. If nothing matches, you manually enter details.
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         )}
 
                         {tab === 'settings' && (
-                            <div>
+                            <div className="tab-content-centered">
                                 <h2 style={{ marginBottom: '24px' }}>⚙️ Shop Settings</h2>
                                 <div className="card" style={{ maxWidth: '520px' }}>
                                     <h3 style={{ marginBottom: '20px' }}>Edit Shop Profile</h3>

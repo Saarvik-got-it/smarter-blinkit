@@ -239,6 +239,29 @@ export default function BuyerDashboard() {
         out_for_delivery: 'blue', delivered: 'green', cancelled: 'red',
     };
 
+    const getMostCommonCategory = () => {
+        const cats: Record<string, number> = {};
+        orders.forEach(o => o.items?.forEach((item: any) => {
+            const cat = item.productId?.category || 'Groceries';
+            cats[cat] = (cats[cat] || 0) + 1;
+        }));
+        return Object.entries(cats).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Groceries';
+    };
+
+    const getFavoriteShop = () => {
+        const shops: Record<string, number> = {};
+        orders.forEach(o => o.items?.forEach((item: any) => {
+            const name = item.shopId?.name || 'Local Shop';
+            shops[name] = (shops[name] || 0) + 1;
+        }));
+        return Object.entries(shops).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Local Shop';
+    };
+
+    const getAvgOrder = () => {
+        if (!orders.length) return '0';
+        return (orders.reduce((s: number, o: any) => s + (o.totalAmount || 0), 0) / orders.length).toFixed(0);
+    };
+
     return (
         <div className="dashboard-layout">
             {/* Sidebar */}
@@ -250,6 +273,10 @@ export default function BuyerDashboard() {
                     <div style={{ fontWeight: 700 }}>{user?.name}</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{user?.email}</div>
                     <div className="badge badge-green" style={{ marginTop: '8px' }}>Buyer</div>
+                    <div className="sidebar-status-bar">
+                        <span className="status-online-dot" />
+                        Online · Ready to shop
+                    </div>
                 </div>
                 <div className="sidebar-section-label">Navigate</div>
                 <a href="/shop" className="sidebar-link"><span className="link-icon">🛒</span> Shop</a>
@@ -263,6 +290,13 @@ export default function BuyerDashboard() {
                 <button onClick={() => setActiveTab('account')} className={`sidebar-link${activeTab === 'account' ? ' active' : ''}`} style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', color: 'var(--text-primary)', font: 'inherit' }}>
                     <span className="link-icon">⚙️</span> Account
                 </button>
+
+                <div className="sidebar-section-label" style={{ marginTop: '20px' }}>Quick Actions</div>
+                <div className="quick-action-row">
+                    <a href="/shop" className="quick-action-btn primary"><span>🛍️</span> Browse Stores</a>
+                    <a href="/ai-agent" className="quick-action-btn primary"><span>🧠</span> Ask AI Agent</a>
+                    <button onClick={() => setActiveTab('account')} className="quick-action-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: 'inherit' }}><span>⚙️</span> Account Settings</button>
+                </div>
             </aside>
 
             {/* Main Content */}
@@ -425,7 +459,60 @@ export default function BuyerDashboard() {
                             <a href="/ai-agent" className="btn btn-secondary"><span>🧠</span> AI Recipe Agent</a>
                             <button onClick={() => setActiveTab('faceid')} className="btn btn-ghost"><span>🪪</span> Setup Face ID</button>
                         </div>
+                        {/* AI Insights + Recent Activity */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+                            <div className="ai-insight-card">
+                                <div className="ai-insight-title">
+                                    <span className="status-online-dot" />
+                                    AI Shopping Insights
+                                </div>
+                                {orders.length > 0 ? (
+                                    <>
+                                        <div className="ai-insight-item">
+                                            <span>💡</span>
+                                            <span>You shop most for <strong>{getMostCommonCategory()}</strong> items — check out the latest deals.</span>
+                                        </div>
+                                        <div className="ai-insight-item">
+                                            <span>🏪</span>
+                                            <span>Your favourite shop: <strong>{getFavoriteShop()}</strong>. New stock may be available.</span>
+                                        </div>
+                                        <div className="ai-insight-item">
+                                            <span>💰</span>
+                                            <span>Average order value: <strong>₹{getAvgOrder()}</strong>. Use AI Agent to optimise costs.</span>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="ai-insight-item"><span>🎯</span><span>Try the AI Recipe Agent — describe a meal and we fill your cart instantly.</span></div>
+                                        <div className="ai-insight-item"><span>🔍</span><span>Use intent search — type &quot;I have a cold&quot; to get health-focused suggestions.</span></div>
+                                        <div className="ai-insight-item"><span>🏪</span><span>Enable location to discover the closest shops with real-time stock.</span></div>
+                                    </>
+                                )}
+                            </div>
 
+                            {orders.length > 0 && (
+                                <div className="contextual-panel">
+                                    <div className="panel-header">
+                                        <span className="panel-title">📋 Recent Activity</span>
+                                        <span className="panel-badge">{orders.length} orders</span>
+                                    </div>
+                                    <div className="activity-feed">
+                                        {orders.slice(0, 3).map((o: any) => (
+                                            <div key={o._id} className="activity-item">
+                                                <div className="activity-icon-wrap">
+                                                    {o.status === 'delivered' ? '✅' : o.status === 'cancelled' ? '❌' : '📦'}
+                                                </div>
+                                                <div className="activity-text">
+                                                    <div className="activity-main">{o.items?.length} items · ₹{o.totalAmount?.toFixed(0)}</div>
+                                                    <div className="activity-sub">{o.status} · {new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</div>
+                                                </div>
+                                                <span className={`badge badge-${statusColor[o.status] || 'blue'}`} style={{ fontSize: '0.65rem' }}>{o.status}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                         {/* Orders */}
                         {selectedOrderId ? (
                             <div className="card" style={{ padding: '24px' }}>

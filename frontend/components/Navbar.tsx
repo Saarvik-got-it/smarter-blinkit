@@ -1,9 +1,10 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
 import { useApp } from '@/lib/context';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function Navbar() {
     const { user, logout, cartCount, setCartOpen, api } = useApp();
@@ -13,7 +14,13 @@ export default function Navbar() {
     useEffect(() => {
         const savedTheme = localStorage.getItem('sb_theme');
         if (savedTheme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+
+        const handleScroll = () => setScrolled(window.scrollY > 20);
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        return () => window.removeEventListener('scroll', handleScroll);
     }, []);
+
+    const [scrolled, setScrolled] = useState(false);
 
     const handleLogout = () => {
         if (logout()) {
@@ -22,12 +29,17 @@ export default function Navbar() {
     };
 
     return (
-        <nav className="navbar">
+        <motion.nav className={`navbar${scrolled ? ' scrolled' : ''}`}
+            initial={{ opacity: 0, y: -16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}>
             <div className="navbar-inner">
-                <Link href="/" className="navbar-logo">
-                    <div className="navbar-logo-icon">⚡</div>
-                    <span>Smarter<span className="text-accent">Blinkit</span></span>
-                </Link>
+                <motion.div whileHover={{ scale: 1.04 }} transition={{ duration: 0.2 }}>
+                    <Link href="/" className="navbar-logo">
+                        <div className="navbar-logo-icon">⚡</div>
+                        <span>Smarter<span className="text-accent">Blinkit</span></span>
+                    </Link>
+                </motion.div>
 
                 <div className="navbar-links">
                     {user ? (
@@ -56,8 +68,8 @@ export default function Navbar() {
                             {/* Address Switcher */}
                             {user.role === 'buyer' && user.savedAddresses && user.savedAddresses.length > 0 && (
                                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center', background: 'var(--bg-elevated)', padding: '4px 12px', borderRadius: '16px', border: '1px solid var(--border)', cursor: 'pointer', maxWidth: '200px' }}
-                                     onMouseEnter={(e) => { const el = document.getElementById('navbar-addr-dropdown'); if(el) el.style.display = 'block'; }}
-                                     onMouseLeave={(e) => { const el = document.getElementById('navbar-addr-dropdown'); if(el) el.style.display = 'none'; }}>
+                                    onMouseEnter={(e) => { const el = document.getElementById('navbar-addr-dropdown'); if (el) el.style.display = 'block'; }}
+                                    onMouseLeave={(e) => { const el = document.getElementById('navbar-addr-dropdown'); if (el) el.style.display = 'none'; }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
                                         <span style={{ fontSize: '1rem' }}>📍</span>
                                         <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -68,25 +80,25 @@ export default function Navbar() {
                                         </div>
                                         <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>▼</span>
                                     </div>
-                                    
+
                                     {/* Dropdown Menu */}
                                     <div id="navbar-addr-dropdown" style={{ display: 'none', position: 'absolute', top: '100%', left: 0, marginTop: '8px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '8px', minWidth: '240px', boxShadow: 'var(--shadow-lg)', zIndex: 100 }}>
                                         <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', padding: '4px 8px', marginBottom: '4px' }}>SAVED ADDRESSES</div>
                                         {user.savedAddresses.map((addr: any) => {
                                             const isActive = user.location?.coordinates && addr.coordinates && user.location.coordinates[0] === addr.coordinates[0] && user.location.coordinates[1] === addr.coordinates[1];
                                             return (
-                                                <div key={addr._id} 
+                                                <div key={addr._id}
                                                     onClick={async () => {
                                                         if (isActive) return;
                                                         try {
                                                             const { data } = await api.put('/auth/addresses/active', { addressId: addr._id });
                                                             useApp().updateUser(data.user);
                                                             useApp().toast('Delivery address updated', 'success');
-                                                        } catch(e) {}
+                                                        } catch (e) { }
                                                     }}
                                                     style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '8px', borderRadius: '8px', cursor: isActive ? 'default' : 'pointer', background: isActive ? 'var(--accent-subtle)' : 'transparent', transition: 'var(--transition)' }}
-                                                    onMouseEnter={(e) => { if(!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                                                    onMouseLeave={(e) => { if(!isActive) e.currentTarget.style.background = 'transparent'; }}
+                                                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                                                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                                                 >
                                                     <span style={{ fontSize: '1.2rem', marginTop: '2px' }}>{addr.tag === 'Home' ? '🏠' : addr.tag === 'Work' ? '🏢' : '📍'}</span>
                                                     <div style={{ flex: 1 }}>
@@ -124,11 +136,16 @@ export default function Navbar() {
                     ) : (
                         <>
                             <Link href="/login" className="navbar-link">Sign in</Link>
+                            <button className="btn btn-ghost btn-sm" onClick={() => {
+                                const t = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+                                document.documentElement.setAttribute('data-theme', t);
+                                localStorage.setItem('sb_theme', t);
+                            }} style={{ fontSize: '1.1rem', padding: '6px 8px' }} title="Toggle Theme">🌗</button>
                             <Link href="/register" className="btn btn-primary btn-sm">Get started</Link>
                         </>
                     )}
                 </div>
             </div>
-        </nav>
+        </motion.nav>
     );
 }
