@@ -85,6 +85,7 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 6.  **Hugging Face (Inference Fallback)**: Used as a secondary layer for semantic similarity if Gemini quotas are exceeded.
 7.  **Stripe API (Test Mode)**: Handles real card payments via Stripe PaymentIntents. Uses `@stripe/stripe-js` (frontend) and `stripe` Node SDK (backend) for a full PCI-compliant checkout flow.
 8.  **OpenFoodFacts API**: Public external API used to seamlessly fetch product details (name, brand, category, image) for unrecognised barcodes during inventory scanning, eliminating manual entry.
+9.  **Google Images (via `googlethis`)**: Powers the automated background product image scraper to dynamically fetch and attach hyper-accurate, real-world packaging thumbnails for all catalog items without relying on generic placeholders.
 
 
 ---
@@ -304,6 +305,7 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 | GET | `/api/products/search?q=&lat=&lng=` | Intent + geo search |
 | GET | `/api/products/:id/suggestions` | Neo4j similar products |
 | GET | `/api/products/low-stock` | Retrieve seller's low stock items (<5) |
+
 | POST | `/api/products/barcode/lookup` | Fast barcode external/internal lookup |
 | POST | `/api/orders` | Place order (with cart splitting) |
 | POST | `/api/payments/create-intent` | Create Stripe PaymentIntent (or mock fallback) |

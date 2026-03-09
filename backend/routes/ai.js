@@ -165,7 +165,7 @@ router.post('/intent-search', async (req, res) => {
         let usedFallback = false;
 
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
             const searchPrompt = `You are a smart search assistant for a grocery/pharmacy/daily needs marketplace.
 Expand the following user query into specific product keywords to search for.
 Respond ONLY with a valid JSON array of strings (max 8 keywords), no markdown:
