@@ -128,6 +128,10 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 - **In-Memory Semantic Search**: If Neo4j is offline, vectors are queried from MongoDB and processed locally via an optimized Cosine Similarity Node.js function, ensuring 100% smart-pairing uptime without degrading into basic keyword search.
 - **Hugging Face Inference**: Completely bypasses Gemini API rate limits (HTTP 429) by delegating NLP keyword extraction and intent parsing to Hugging Face's `Qwen2.5-72B-Instruct` model on the fly.
 
+### Stage 6 — Smart Logistics Preview ✅
+- **Smart Delivery Route Visualization**: The cart sidebar now acts as a full logistics preview. When items span multiple shops it shows: optimized pickup order (nearest-neighbour algorithm), a horizontal flow bar (`Store A → Store B → Your Home`), per-stop summaries with item counts and ETA, and an interactive dark-themed Leaflet map with color-coded polylines (green = store-to-store, blue = last-mile delivery).
+- **Multi-Model AI Fallback Router**: All Gemini text-generation calls go through `aiRouter.js` which automatically cycles through a configurable priority list (`gemini-2.5-flash → gemini-2.0-flash → gemini-2.0-flash-lite → gemini-1.5-flash`) on rate-limit / quota errors. The last successful model is cached to reduce fallback switches. Every AI response includes a `modelUsed` field shown subtly in the UI.
+
 ---
 
 ## 🗺️ Geo-Spatial Location Engine

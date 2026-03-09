@@ -1,10 +1,10 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '@/lib/context';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 export default function Navbar() {
     const { user, logout, cartCount, setCartOpen, api } = useApp();
@@ -21,6 +21,16 @@ export default function Navbar() {
     }, []);
 
     const [scrolled, setScrolled] = useState(false);
+    const [cartBounce, setCartBounce] = useState(false);
+    const prevCartCount = useRef(cartCount);
+
+    useEffect(() => {
+        if (cartCount > prevCartCount.current) {
+            setCartBounce(true);
+            setTimeout(() => setCartBounce(false), 600);
+        }
+        prevCartCount.current = cartCount;
+    }, [cartCount]);
 
     const handleLogout = () => {
         if (logout()) {
@@ -61,9 +71,27 @@ export default function Navbar() {
                                 </>
                             )}
                             {user.role === 'buyer' && (
-                                <button className="btn btn-secondary btn-sm" onClick={() => setCartOpen(true)} style={{ gap: '6px' }}>
-                                    🛒 <span>Cart ({cartCount})</span>
-                                </button>
+                                <motion.button
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => setCartOpen(true)}
+                                    style={{ gap: '6px', position: 'relative' }}
+                                    animate={cartBounce ? { scale: [1, 1.22, 0.92, 1.08, 1] } : { scale: 1 }}
+                                    transition={{ duration: 0.5, ease: 'easeOut' }}
+                                >
+                                    🛒{' '}
+                                    <AnimatePresence mode="popLayout">
+                                        <motion.span
+                                            key={cartCount}
+                                            initial={{ scale: 0.5, opacity: 0, y: -8 }}
+                                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                                            exit={{ scale: 0.5, opacity: 0, y: 8 }}
+                                            transition={{ duration: 0.25, ease: [0.34, 1.56, 0.64, 1] }}
+                                            style={{ display: 'inline-block', minWidth: '1ch' }}
+                                        >
+                                            Cart ({cartCount})
+                                        </motion.span>
+                                    </AnimatePresence>
+                                </motion.button>
                             )}
                             {/* Address Switcher */}
                             {user.role === 'buyer' && user.savedAddresses && user.savedAddresses.length > 0 && (

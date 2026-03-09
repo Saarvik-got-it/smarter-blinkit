@@ -2,6 +2,7 @@
 import { useApp } from '@/lib/context';
 import { useState, useEffect, useRef } from 'react';
 import { loadStripe, Stripe, StripeCardElement } from '@stripe/stripe-js';
+import DeliveryRouteMap from './DeliveryRouteMap';
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
     ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
@@ -198,6 +199,42 @@ export default function CartSidebar() {
 
     const displaySubtotals = cartAnalysis?.totals || { subtotal: cartTotal, deliveryFee, platformFee: 5, grandTotal: baseGrandTotal + 5 };
 
+    const goToCheckout = () => {
+        if (!user?.location?.address || (user.location.coordinates[0] === 0 && user.location.coordinates[1] === 0)) {
+            toast('Please select a delivery address in the top bar before checking out.', 'error');
+            return;
+        }
+        setStep('payment');
+    };
+
+    const stepIdx = step === 'cart' ? 0 : step === 'payment' ? 1 : step === 'processing' ? 2 : 3;
+
+    const paymentRows = (
+        <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Subtotal</span>
+                <span style={{ fontWeight: 600, fontSize: '0.92rem' }}>₹{displaySubtotals.subtotal.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Platform Fee</span>
+                <span style={{ fontWeight: 600, fontSize: '0.92rem' }}>₹{displaySubtotals.platformFee.toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Delivery</span>
+                <span style={{ fontWeight: 600, fontSize: '0.92rem', color: displaySubtotals.deliveryFee === 0 ? 'var(--accent)' : 'inherit' }}>
+                    {displaySubtotals.deliveryFee === 0 ? '🎉 FREE' : `₹${displaySubtotals.deliveryFee.toFixed(2)}`}
+                </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 0', marginBottom: '20px', borderTop: '1px dashed var(--border)', borderBottom: '1px dashed var(--border)' }}>
+                <span style={{ fontWeight: 700, fontSize: '1rem' }}>To Pay</span>
+                <span style={{ fontWeight: 800, fontSize: '1.3rem', color: 'var(--accent)' }}>₹{displaySubtotals.grandTotal.toFixed(2)}</span>
+            </div>
+            <button className="btn btn-primary w-full btn-lg" onClick={goToCheckout} style={{ boxShadow: '0 4px 16px rgba(var(--accent-rgb), 0.35)', fontSize: '0.95rem', letterSpacing: '0.2px' }}>
+                Proceed to Checkout →
+            </button>
+        </>
+    );
+
     return (
         <>
             {cartOpen && <div onClick={resetAndClose} className="sidebar-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 49, backdropFilter: 'blur(4px)' }} />}
@@ -218,8 +255,54 @@ export default function CartSidebar() {
                         </div>
                     </div>
 
+                    {/* ── Checkout Progress Indicator ─────────────────────── */}
+                    {cart.length > 0 && (
+                        <div style={{ padding: '10px 20px 8px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                                {(['Cart', 'Checkout', 'Payment', 'Confirmed'] as const).map((label, i) => (
+                                    <div key={label} style={{ display: 'flex', alignItems: 'flex-start', flex: i < 3 ? 1 : 'none' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                            <div style={{
+                                                width: 24, height: 24, borderRadius: '50%',
+                                                background: i === stepIdx ? 'var(--accent)' : i < stepIdx ? 'var(--accent)' : 'var(--bg-elevated)',
+                                                border: `2px solid ${i <= stepIdx ? 'var(--accent)' : 'var(--border)'}`,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: '0.62rem', fontWeight: 800,
+                                                color: i <= stepIdx ? '#000' : 'var(--text-muted)',
+                                                boxShadow: i === stepIdx ? '0 0 8px rgba(var(--accent-rgb), 0.5)' : 'none',
+                                                flexShrink: 0, transition: 'all 0.3s',
+                                            }}>
+                                                {i < stepIdx ? '✓' : i + 1}
+                                            </div>
+                                            <span style={{
+                                                fontSize: '0.6rem', fontWeight: i === stepIdx ? 700 : 500,
+                                                color: i === stepIdx ? 'var(--accent)' : 'var(--text-muted)',
+                                                whiteSpace: 'nowrap', lineHeight: 1,
+                                            }}>{label}</span>
+                                        </div>
+                                        {i < 3 && (
+                                            <div style={{
+                                                flex: 1, height: 2, marginTop: '11px',
+                                                background: i < stepIdx ? 'var(--accent)' : 'var(--border)',
+                                                transition: 'background 0.35s ease',
+                                            }} />
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                 {step === 'cart' && (
-                    <>
+                    <div
+                        className="cart-body-layout"
+                        style={isMaximized && cart.length > 0 && !!cartAnalysis ? {
+                            display: 'grid',
+                            gridTemplateColumns: 'minmax(0, 1fr) 320px',
+                            flex: 1,
+                            minHeight: 0,
+                        } : { display: 'contents' }}
+                    >
                         <div
                             className="cart-items"
                             style={{ paddingBottom: '20px' }}
@@ -238,34 +321,41 @@ export default function CartSidebar() {
                                 </div>
                             ) : cartAnalysis && (
                                 <>
-                                    {/* Out of Stock / Unavailable Items */}
+                                    {/* Smart Delivery Route Visualization */}
+                                    <div style={{ marginBottom: '32px' }}>
+                                        <DeliveryRouteMap
+                                            cartAnalysis={cartAnalysis}
+                                            userCoords={user?.location?.coordinates as [number, number] | undefined}
+                                            userAddress={user?.location?.address}
+                                        />
+                                    </div>
+
+                                    {/* Unavailable Items */}
                                     {cartAnalysis.unavailableItems?.length > 0 && (
-                                        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--danger)', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
-                                            <div style={{ color: 'var(--danger)', fontWeight: 600, fontSize: '0.9rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--danger)', borderRadius: '16px', padding: '24px', marginBottom: '32px', boxShadow: '0 2px 12px rgba(0,0,0,0.04)' }}>
+                                            <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.9rem', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <span>⚠️</span> Some items are currently unavailable
                                             </div>
                                             {cartAnalysis.unavailableItems.map((ui: any) => (
-                                                <div key={ui.productId} style={{ marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                                                <div key={ui.productId} style={{ marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                        <img src={ui.image || '/placeholder.png'} alt={ui.name} style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', opacity: 0.5 }} />
+                                                        <img src={ui.image || '/placeholder.png'} alt={ui.name} style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover', opacity: 0.5 }} />
                                                         <div style={{ flex: 1 }}>
                                                             <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textDecoration: 'line-through' }}>{ui.name}</div>
-                                                            <div style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{ui.reason}</div>
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: 2 }}>{ui.reason}</div>
                                                         </div>
                                                         <button className="btn btn-ghost btn-sm" onClick={() => removeFromCart(ui.productId)} style={{ color: 'var(--text-primary)' }}>Remove</button>
                                                     </div>
-                                                    
-                                                    {/* Replacements Dropdown */}
                                                     {ui.replacements?.length > 0 && (
-                                                        <div style={{ marginTop: '12px', background: 'var(--bg-elevated)', padding: '10px', borderRadius: '8px' }}>
-                                                            <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '8px' }}>Suggested Replacements:</div>
+                                                        <div style={{ marginTop: '12px', background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px' }}>
+                                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.4px', color: 'var(--text-muted)' }}>Suggested Replacements</div>
                                                             {ui.replacements.map((rep: any) => (
                                                                 <div key={rep._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
                                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                        <img src={rep.image || '/placeholder.png'} style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover' }} />
+                                                                        <img src={rep.image || '/placeholder.png'} style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
                                                                         <span>{rep.name}</span>
                                                                     </div>
-                                                                    <button className="btn btn-primary btn-sm" style={{ padding: '2px 8px', fontSize: '0.75rem', minHeight: 'unset', height: '24px' }}
+                                                                    <button className="btn btn-primary btn-sm" style={{ padding: '2px 10px', fontSize: '0.75rem', minHeight: 'unset', height: '26px' }}
                                                                         onClick={() => {
                                                                             removeFromCart(ui.productId);
                                                                             addToCart({ productId: rep._id, name: rep.name, price: rep.price, quantity: ui.quantity, image: rep.image, shopId: '' });
@@ -283,51 +373,61 @@ export default function CartSidebar() {
 
                                     {/* Shop Groups */}
                                     {cartAnalysis.shopGroups?.map((group: any, idx: number) => (
-                                        <div key={idx} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '16px', marginBottom: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
-                                                <div>
-                                                    <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        🏪 {group.shopName || 'Local Shop'}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                                        Delivery in ~{group.deliveryEstimateMins} mins
+                                        <div key={idx} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '20px 24px', marginBottom: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.04)', transition: 'box-shadow 0.2s' }}>
+                                            {/* Store header */}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '14px', borderBottom: '1px solid var(--border)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'var(--accent-subtle)', border: '1px solid var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0 }}>🏪</div>
+                                                    <div>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{group.shopName || 'Local Shop'}</div>
+                                                        <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                            ⏱ Delivery in ~{group.deliveryEstimateMins} mins
+                                                        </div>
                                                     </div>
                                                 </div>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--accent)', fontWeight: 600, background: 'var(--accent-subtle)', padding: '3px 8px', borderRadius: '8px' }}>
+                                                    {group.items?.length} item{group.items?.length !== 1 ? 's' : ''}
+                                                </span>
                                             </div>
-                                            
+
+                                            {/* Items list */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                                 {group.items.map((item: any) => (
-                                                    <div key={item.productId} className="cart-item" style={{ border: 'none', padding: 0, margin: 0, background: 'transparent' }}>
-                                                        <div className="cart-item-img" style={{ width: 56, height: 56 }}>
-                                                            {item.image ? <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} /> : '📦'}
+                                                    <div key={item.productId} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                                                        <div style={{ width: 60, height: 60, borderRadius: '12px', background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                                                            {item.image
+                                                                ? <img src={item.image} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                                : <span style={{ fontSize: '1.4rem' }}>📦</span>
+                                                            }
                                                         </div>
-                                                        <div className="cart-item-info">
-                                                            <div className="cart-item-name" style={{ fontSize: '0.9rem' }}>{item.name}</div>
-                                                            <div className="cart-item-price" style={{ fontSize: '0.85rem' }}>₹{(item.price * item.quantity).toFixed(2)}</div>
-                                                            <div className="qty-control" style={{ marginTop: 8 }}>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: '0.9rem', fontWeight: 600, lineHeight: 1.3, marginBottom: '4px' }}>{item.name}</div>
+                                                            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--accent)' }}>₹{(item.price * item.quantity).toFixed(2)}</div>
+                                                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>₹{item.price} ea</div>
+                                                            <div className="qty-control" style={{ marginTop: '10px' }}>
                                                                 <button className="qty-btn" onClick={() => updateQty(item.productId, -1)}>−</button>
-                                                                <span style={{ fontSize: '0.875rem', fontWeight: 600, minWidth: '24px', textAlign: 'center' }}>{item.quantity}</span>
+                                                                <span style={{ fontSize: '0.875rem', fontWeight: 700, minWidth: '28px', textAlign: 'center' }}>{item.quantity}</span>
                                                                 <button className="qty-btn" onClick={() => updateQty(item.productId, 1)}>+</button>
                                                             </div>
                                                         </div>
-                                                        <button className="btn btn-ghost btn-sm" onClick={() => removeFromCart(item.productId)} style={{ color: 'var(--text-muted)', alignSelf: 'flex-start' }}>✕</button>
+                                                        <button className="btn btn-ghost btn-sm" onClick={() => removeFromCart(item.productId)} style={{ color: 'var(--text-muted)', padding: '4px', lineHeight: 1, flexShrink: 0 }}>✕</button>
                                                     </div>
                                                 ))}
                                             </div>
                                         </div>
                                     ))}
 
-                                    {/* Cross Sell Intelligence */}
+                                    {/* Cross Sell */}
                                     {cartAnalysis.crossSells?.length > 0 && (
-                                        <div style={{ marginTop: '24px', marginBottom: '16px' }}>
-                                            <h4 style={{ fontSize: '0.9rem', marginBottom: '12px', color: 'var(--text-primary)' }}>People also bought</h4>
+                                        <div style={{ marginTop: '8px', marginBottom: '16px' }}>
+                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: '14px' }}>People also bought</div>
                                             <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '8px', msOverflowStyle: 'none', scrollbarWidth: 'none' }}>
                                                 {cartAnalysis.crossSells.map((cs: any) => (
-                                                    <div key={cs._id} style={{ minWidth: '120px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                                                        <img src={cs.image || '/placeholder.png'} style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginBottom: '8px' }} />
-                                                        <div style={{ fontSize: '0.75rem', fontWeight: 500, lineHeight: 1.2, marginBottom: '6px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{cs.name}</div>
-                                                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)', marginBottom: '8px' }}>₹{cs.price}</div>
-                                                        <button className="btn btn-secondary btn-sm" style={{ width: '100%', fontSize: '0.75rem', padding: '4px' }}
+                                                    <div key={cs._id} style={{ minWidth: '116px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', flexShrink: 0 }}>
+                                                        <img src={cs.image || '/placeholder.png'} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, marginBottom: '8px' }} />
+                                                        <div style={{ fontSize: '0.73rem', fontWeight: 500, lineHeight: 1.25, marginBottom: '6px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', width: '100%' }}>{cs.name}</div>
+                                                        <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--accent)', marginBottom: '8px' }}>₹{cs.price}</div>
+                                                        <button className="btn btn-secondary btn-sm" style={{ width: '100%', fontSize: '0.73rem', padding: '4px 6px' }}
                                                             onClick={() => addToCart({ productId: cs._id, name: cs.name, price: cs.price, quantity: 1, image: cs.image, shopId: '' })}>
                                                             + Add
                                                         </button>
@@ -340,38 +440,30 @@ export default function CartSidebar() {
                             )}
                         </div>
 
-                        {cart.length > 0 && cartAnalysis && (
-                            <div className="cart-footer" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)', paddingTop: '16px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span className="text-muted" style={{ fontSize: '0.85rem' }}>Subtotal</span>
-                                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{displaySubtotals.subtotal.toFixed(2)}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span className="text-muted" style={{ fontSize: '0.85rem' }}>Platform Fee</span>
-                                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{displaySubtotals.platformFee.toFixed(2)}</span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <span className="text-muted" style={{ fontSize: '0.85rem' }}>Delivery</span>
-                                    <span style={{ fontWeight: 600, fontSize: '0.95rem', color: displaySubtotals.deliveryFee === 0 ? 'var(--accent)' : 'inherit' }}>
-                                        {displaySubtotals.deliveryFee === 0 ? 'FREE' : `₹${displaySubtotals.deliveryFee.toFixed(2)}`}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border)' }}>
-                                    <span style={{ fontWeight: 700 }}>To Pay</span>
-                                    <span style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--accent)' }}>₹{displaySubtotals.grandTotal.toFixed(2)}</span>
-                                </div>
-                                <button className="btn btn-primary w-full btn-lg" onClick={() => {
-                                    if (!user?.location?.address || (user.location.coordinates[0] === 0 && user.location.coordinates[1] === 0)) {
-                                        toast('Please select a delivery address in the top bar before checking out.', 'error');
-                                        return;
-                                    }
-                                    setStep('payment');
-                                }} style={{ boxShadow: '0 4px 12px rgba(var(--accent-rgb), 0.3)' }}>
-                                    Proceed to Checkout →
-                                </button>
+                        {!isMaximized && cart.length > 0 && !!cartAnalysis && (
+                            <div className="cart-footer" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-elevated)', paddingTop: '20px', flexShrink: 0 }}>
+                                {paymentRows}
                             </div>
                         )}
-                    </>
+
+                        {/* ── Order Summary card (maximized two-column mode) ── */}
+                        {isMaximized && cart.length > 0 && !!cartAnalysis && (
+                            <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--bg-secondary)', overflow: 'hidden auto', padding: '20px 16px' }}>
+                                <div style={{
+                                    background: 'var(--bg-card)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '16px',
+                                    padding: '22px 20px',
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.07)',
+                                }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.98rem', marginBottom: '20px', paddingBottom: '14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        💳 Order Summary
+                                    </div>
+                                    {paymentRows}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 )}
 
 

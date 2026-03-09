@@ -652,7 +652,7 @@ h4 {
 }
 
 .cart-sidebar.maximized .cart-sidebar-container {
-  max-width: 900px;
+  max-width: 1200px;
 }
 
 .cart-header {
@@ -667,6 +667,7 @@ h4 {
   flex: 1;
   overflow-y: auto;
   padding: 16px 24px;
+  min-height: 0;
 }
 
 .cart-footer {
@@ -733,6 +734,14 @@ h4 {
 .qty-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ── Cart layout: mobile stack ──────────────────────────────────────── */
+/* Mobile: single-column cart, sidebar full-width */
+@media (max-width: 640px) {
+  .cart-sidebar.maximized {
+    width: 100vw;
+  }
 }
 
 /* â”€â”€ Dashboard Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */

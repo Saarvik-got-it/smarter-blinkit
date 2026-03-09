@@ -21,10 +21,12 @@
 **Key Systems:**
 - AI intent search (Gemini → HuggingFace → regex, 3-tier fallback)
 - AI recipe agent (natural language → cart items)
+- **Multi-model AI router** (`aiRouter.js` — priority list fallback, last-success cache, `modelUsed` in every response)
 - Neo4j graph suggestions (SIMILAR_TO, BOUGHT_WITH, vector semantic search)
 - Barcode inventory system (ZXing scanner + OpenFoodFacts external lookup)
 - Smart cart splitting (multi-shop, distance-optimized)
 - Cart intelligence (cross-sells + replacement suggestions via Neo4j)
+- **Smart Delivery Route Visualization** (nearest-neighbour pickup order, Leaflet dark map, polylines, ETA summary)
 - Location system (GeoJSON, MapPicker, Nominatim, PostalPincode API)
 - Face ID (face-api.js, browser-side TensorFlow.js)
 - Live storeboard (Socket.io real-time events)
@@ -114,8 +116,9 @@ smarter-blinkit/
 │   ├── routes/                  # auth, products, orders, shops, payments, ai, admin, cart
 │   ├── services/
 │   │   ├── neo4j.js             # Graph + vector search + fallback engine
+│   │   ├── aiRouter.js          # Multi-model Gemini fallback router (priority list + cache)
 │   │   ├── cartSplitter.js      # Pure shop-grouping function
-│   │   ├── smartCartService.js  # Multi-criteria shop optimization
+│   │   ├── smartCartService.js  # Multi-criteria shop optimization (now exposes shopLocation)
 │   │   ├── cartIntelligenceService.js  # Cross-sells & replacements
 │   │   └── userReportService.js # Excel report generation
 │   └── sockets/storeboard.js   # Real-time Socket.io events
@@ -138,7 +141,10 @@ smarter-blinkit/
 │   ├── components/
 │   │   ├── BuyerDashboard.tsx   # Orders, Face ID, address book (~500L)
 │   │   ├── SellerDashboard.tsx  # Full seller console, 6 tabs (~1240L)
-│   │   ├── CartSidebar.tsx      # Smart cart + Stripe checkout (~500L)
+│   │   ├── CartSidebar.tsx      # Smart cart + Stripe checkout + delivery route
+│   │   ├── DeliveryRouteMap.tsx # Route summary panel + nearest-neighbour optimizer
+│   │   ├── DeliveryRouteMapBase.tsx  # Leaflet map (dark tiles, markers, polylines)
+│   │   ├── ProductCarousel.tsx  # Horizontal drag/snap/touch carousel
 │   │   ├── Navbar.tsx           # Nav + address switcher + theme toggle
 │   │   ├── MapPicker.tsx        # SSR-safe Leaflet wrapper
 │   │   ├── MapPickerBase.tsx    # Interactive map (search, drag, GPS)
