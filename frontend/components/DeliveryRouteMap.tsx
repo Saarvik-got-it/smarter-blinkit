@@ -33,15 +33,28 @@ function formatEta(mins: number): string {
 }
 
 /**
- * Nearest-neighbour route optimisation.
- * Starts from the user's location and greedily picks the closest unvisited shop.
- * @param start  [lng, lat] GeoJSON
+ * Route optimisation for delivery: start from the farthest shop (deepest into the
+ * route) and use nearest-neighbour back toward home. This avoids the wrong pattern
+ * of Home → nearby shop → faraway shop → Home (unnecessary round trip).
+ * Correct pattern: Home → farthest shop → (greedy nearest) → closest shop → Home.
+ * @param home   [lng, lat] GeoJSON — customer delivery address
  * @param shops  shop groups that have shopLocation.coordinates
  */
-function nearestNeighbour(start: [number, number], shops: any[]): any[] {
-    const remaining = [...shops];
-    const ordered: any[] = [];
-    let current: [number, number] = start;
+function farthestFirstRoute(home: [number, number], shops: any[]): any[] {
+    if (shops.length <= 1) return shops;
+
+    // 1. The first pickup is the shop farthest from home
+    let farthestIdx = 0;
+    let maxDist = -1;
+    shops.forEach((s, i) => {
+        const d = haversine(home, s.shopLocation.coordinates as [number, number]);
+        if (d > maxDist) { maxDist = d; farthestIdx = i; }
+    });
+
+    // 2. Nearest-neighbour from that farthest shop, progressively heading back toward home
+    const remaining = shops.filter((_, i) => i !== farthestIdx);
+    const ordered: any[] = [shops[farthestIdx]];
+    let current: [number, number] = shops[farthestIdx].shopLocation.coordinates as [number, number];
 
     while (remaining.length > 0) {
         let minDist = Infinity;
@@ -75,10 +88,11 @@ export default function DeliveryRouteMap({ cartAnalysis, userCoords, userAddress
         [cartAnalysis]
     );
 
-    // Optimised pickup order using nearest-neighbour from user position
+    // Optimised pickup order: farthest-first so the agent travels out to the
+    // most distant shop and collects others on the way back home.
     const orderedShops = useMemo(() => {
         if (shopsWithCoords.length === 0 || !userCoords) return shopsWithCoords;
-        return nearestNeighbour(userCoords, shopsWithCoords);
+        return farthestFirstRoute(userCoords, shopsWithCoords);
     }, [shopsWithCoords, userCoords]);
 
     // Total ETA: worst-case shop delivery + 2 min per extra stop, capped at 120 min
