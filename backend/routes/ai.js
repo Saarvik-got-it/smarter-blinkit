@@ -35,7 +35,7 @@ async function generateEmbedding(text) {
 async function searchByKeyword(kw, limit = 6, filters = {}) {
     const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const rx = new RegExp(escaped, 'i');
-    
+
     let query = {
         $or: [{ name: rx }, { description: rx }, { category: rx }, { barcode: rx }],
         isAvailable: true,
@@ -102,7 +102,7 @@ Rules:
             const isRateLimit = aiErr.message?.includes('429') || aiErr.message?.includes('quota') || aiErr.message?.includes('Too Many Requests');
             console.warn(`AI recipe-agent fallback (${isRateLimit ? 'rate-limit' : 'error'}):`, aiErr.message?.slice(0, 80));
             usedFallback = true;
-            
+
             if (hf) {
                 try {
                     console.log('Using Hugging Face fallback for Recipe Agent...');
@@ -238,11 +238,11 @@ User query: "${query}"`;
                         ],
                         max_tokens: 150,
                     });
-                    
+
                     let textResult = result.choices[0].message.content.trim();
                     // Clean up potential markdown formatting the LLM might hallucinate
                     textResult = textResult.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
-                    
+
                     const jsonMatch = textResult.match(/\[[\s\S]*\]/);
                     if (jsonMatch) keywords = JSON.parse(jsonMatch[0]);
                 } catch (hfErr) {
@@ -288,10 +288,12 @@ User query: "${query}"`;
             }
         }
 
-        // 2. keyword boosts
+        // 2. keyword boosts — intentionally excludes `description` to avoid false positives
+        // from ingredient lists/nutritional text in product descriptions (e.g. "ginger" matching
+        // a chutney sauce when searching "I have a cold").
         for (const kw of keywords) {
             let kwQuery = {
-                $or: [{ name: new RegExp(kw, 'i') }, { category: new RegExp(kw, 'i') }, { description: new RegExp(kw, 'i') }],
+                $or: [{ name: new RegExp(kw, 'i') }, { category: new RegExp(kw, 'i') }],
                 isAvailable: true,
                 stock: { $gt: 0 }
             };

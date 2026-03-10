@@ -50,7 +50,7 @@ export default function SellerDashboard() {
                 let cty = s.location?.city || '';
                 let st = s.location?.state || '';
                 let pin = s.location?.pincode || '';
-                
+
                 // Backwards compat for monolithic strings
                 if (addr && (!cty || !st || !pin)) {
                     const parts = addr.split(',').map((ss: string) => ss.trim()).filter(Boolean);
@@ -64,10 +64,10 @@ export default function SellerDashboard() {
                         }
                     }
                 }
-                
-                setShopEdit({ 
-                    name: s.name, 
-                    address: addr, 
+
+                setShopEdit({
+                    name: s.name,
+                    address: addr,
                     phone: s.phone || '',
                     city: cty,
                     state: st,
@@ -93,15 +93,15 @@ export default function SellerDashboard() {
                 processedWeight = `${processedWeight}${newProduct.unit === 'piece' ? '' : newProduct.unit}`;
             }
 
-            const payload: any = { 
-                ...newProduct, 
-                price: Number(newProduct.price), 
+            const payload: any = {
+                ...newProduct,
+                price: Number(newProduct.price),
                 stock: Number(newProduct.stock),
-                weight: processedWeight 
+                weight: processedWeight
             };
-            
+
             if (!payload.expiryDate) delete payload.expiryDate;
-            
+
             if (payload._id) {
                 const { _id, ...updatePayload } = payload;
                 const { data } = await api.put(`/products/${_id}`, updatePayload);
@@ -112,9 +112,18 @@ export default function SellerDashboard() {
                 setProducts(p => [...p, data.product]);
                 toast('Product added! ✅', 'success');
             }
-            
+
             setNewProduct({ name: '', price: '', stock: '', category: '', unit: 'piece', weight: '', barcode: '', image: '', description: '', expiryDate: '' });
         } catch (err: any) { toast(err?.response?.data?.message || 'Failed to save product', 'error'); }
+    };
+
+    const handleDeleteProduct = async (productId: string, productName: string) => {
+        if (!window.confirm(`Delete "${productName}"? This cannot be undone.`)) return;
+        try {
+            await api.delete(`/products/${productId}`);
+            setProducts(p => p.filter(prod => prod._id !== productId));
+            toast('Product deleted.', 'success');
+        } catch (err: any) { toast(err?.response?.data?.message || 'Failed to delete product', 'error'); }
     };
 
     const generateDemoBarcode = () => {
@@ -140,7 +149,7 @@ export default function SellerDashboard() {
                         const street = [addr.road, addr.suburb, addr.neighbourhood, addr.residential].filter(Boolean).join(', ') || '';
                         const city = addr.city || addr.town || addr.village || addr.state_district || '';
                         const state = addr.state || '';
-                        
+
                         setShopSetup((f: any) => ({
                             ...f, address: street, city: city, state: state, pincode: addr.postcode || '',
                             location: { type: 'Point', coordinates: [lon, lat], address: data.display_name }
@@ -327,15 +336,15 @@ export default function SellerDashboard() {
             const url = URL.createObjectURL(file);
             const { BrowserMultiFormatReader } = await import('@zxing/browser');
             const reader = new BrowserMultiFormatReader();
-            
+
             const result = await reader.decodeFromImageUrl(url);
             const code = result.getText();
             URL.revokeObjectURL(url);
             setScanning(false);
             setCapturing(false);
-            
+
             toast(`Barcode found from image: ${code} ✅. Checking details...`, 'info');
-            
+
             try {
                 const res = await api.post('/products/barcode/lookup', { barcode: code });
                 if (res.data.found) {
@@ -370,9 +379,9 @@ export default function SellerDashboard() {
 
     const handlePromptAction = async (action: 'increase' | 'edit' | 'cancel') => {
         if (!existingProductPrompt) return;
-        
+
         const { product, barcode } = existingProductPrompt;
-        
+
         if (action === 'increase') {
             try {
                 await api.post('/products/barcode/update', { barcode, stockDelta: 1 });
@@ -389,7 +398,7 @@ export default function SellerDashboard() {
                 expiryDate: product.expiryDate ? new Date(product.expiryDate).toISOString().split('T')[0] : ''
             });
         }
-        
+
         setExistingProductPrompt(null);
         setTab('inventory');
     };
@@ -444,7 +453,7 @@ export default function SellerDashboard() {
         setSavingShop(true);
         try {
             let coords = shopEdit.location?.coordinates || [0, 0];
-            
+
             if (!shopEdit.location || shopEdit.address !== shopEdit.location.address || shopEdit.city !== shopEdit.location.city || shopEdit.pincode !== shopEdit.location.pincode) {
                 const queriesToTry = [
                     `${shopEdit.address}, ${shopEdit.city}, ${shopEdit.state}, ${shopEdit.pincode}`,
@@ -466,9 +475,9 @@ export default function SellerDashboard() {
                             found = true;
                             break;
                         }
-                    } catch { } 
+                    } catch { }
                 }
-                
+
                 if (!found) {
                     toast('Warning: Could not pinpoint exact map coordinates for this address.', 'info');
                     coords = [0, 0]; // Reset so we don't accidentally match old coords
@@ -492,10 +501,10 @@ export default function SellerDashboard() {
             const { data } = await api.put('/shops/my', payload);
             setShop(data.shop);
             toast('Shop updated! ✅', 'success');
-        } catch (err: any) { 
-            toast(err?.response?.data?.message || 'Update failed', 'error'); 
-        } finally { 
-            setSavingShop(false); 
+        } catch (err: any) {
+            toast(err?.response?.data?.message || 'Update failed', 'error');
+        } finally {
+            setSavingShop(false);
         }
     };
 
@@ -680,7 +689,7 @@ export default function SellerDashboard() {
                                     <div className="stat-card"><div className="stat-icon blue">📋</div><div className="stat-label">Total Orders</div><div className="stat-value">{orders.length}</div></div>
                                     <div className="stat-card"><div className="stat-icon red">⚠️</div><div className="stat-label">Low Stock</div><div className="stat-value">{products.filter(p => p.stock < 5).length}</div></div>
                                 </div>
-                                
+
                                 {products.filter(p => p.stock < 5).length > 0 && (
                                     <div className="card" style={{ padding: '20px', marginBottom: '28px', borderLeft: '4px solid var(--danger)' }}>
                                         <h3 style={{ marginBottom: '16px', color: 'var(--danger)' }}>⚠️ Low Stock Alerts</h3>
@@ -836,20 +845,20 @@ export default function SellerDashboard() {
                                 <div className="card" style={{ marginBottom: '24px' }}>
                                     <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                         <span>
-                                            {(newProduct as any)._id ? '✏️ Edit Product' : '➕ Add Product'} 
+                                            {(newProduct as any)._id ? '✏️ Edit Product' : '➕ Add Product'}
                                             {newProduct.barcode && <span className="badge badge-green" style={{ marginLeft: 8 }}>Barcode: {newProduct.barcode}</span>}
                                         </span>
                                         {(newProduct as any)._id && (
                                             <button className="btn btn-secondary btn-sm" onClick={() => setNewProduct({ name: '', price: '', stock: '', category: '', unit: 'piece', weight: '', barcode: '', image: '', description: '', expiryDate: '' })}>Cancel Edit</button>
                                         )}
                                     </h3>
-                                    
+
                                     {/* Product Image Preview Area */}
                                     <div style={{ display: 'flex', gap: '20px', marginBottom: '24px', alignItems: 'flex-start' }}>
-                                        <div style={{ 
-                                            width: '120px', height: '120px', 
-                                            borderRadius: 'var(--radius-md)', 
-                                            background: newProduct.image ? 'transparent' : 'var(--bg-elevated)', 
+                                        <div style={{
+                                            width: '120px', height: '120px',
+                                            borderRadius: 'var(--radius-md)',
+                                            background: newProduct.image ? 'transparent' : 'var(--bg-elevated)',
                                             border: '2px dashed var(--border)',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                             overflow: 'hidden', flexShrink: 0
@@ -1002,27 +1011,36 @@ export default function SellerDashboard() {
                                                         <td><span style={{ color: p.stock < 5 ? 'var(--danger)' : 'var(--text-primary)', fontWeight: 600 }}>{p.stock} units</span></td>
                                                         <td>{p.salesCount}</td>
                                                         <td>
-                                                            <button 
-                                                                className="btn btn-secondary btn-sm" 
-                                                                onClick={() => {
-                                                                    setNewProduct({
-                                                                        _id: p._id,
-                                                                        name: p.name,
-                                                                        price: p.price.toString(),
-                                                                        stock: p.stock.toString(),
-                                                                        category: p.category,
-                                                                        unit: p.unit || 'piece',
-                                                                        weight: p.weight || '',
-                                                                        barcode: p.barcode || '',
-                                                                        image: p.image || '',
-                                                                        description: p.description || '',
-                                                                        expiryDate: p.expiryDate ? new Date(p.expiryDate).toISOString().split('T')[0] : ''
-                                                                    } as any);
-                                                                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                                                                }}
-                                                            >
-                                                                ✏️ Edit
-                                                            </button>
+                                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                                <button
+                                                                    className="btn btn-secondary btn-sm"
+                                                                    onClick={() => {
+                                                                        setNewProduct({
+                                                                            _id: p._id,
+                                                                            name: p.name,
+                                                                            price: p.price.toString(),
+                                                                            stock: p.stock.toString(),
+                                                                            category: p.category,
+                                                                            unit: p.unit || 'piece',
+                                                                            weight: p.weight || '',
+                                                                            barcode: p.barcode || '',
+                                                                            image: p.image || '',
+                                                                            description: p.description || '',
+                                                                            expiryDate: p.expiryDate ? new Date(p.expiryDate).toISOString().split('T')[0] : ''
+                                                                        } as any);
+                                                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                                    }}
+                                                                >
+                                                                    ✏️ Edit
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-sm"
+                                                                    style={{ color: 'var(--danger)', border: '1px solid var(--danger)', background: 'transparent' }}
+                                                                    onClick={() => handleDeleteProduct(p._id, p.name)}
+                                                                >
+                                                                    🗑️ Delete
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -1175,7 +1193,7 @@ export default function SellerDashboard() {
                                             <label className="form-label">Shop / Street Address</label>
                                             <input className="form-input" value={shopEdit.address} onChange={e => setShopEdit((s: any) => ({ ...s, address: e.target.value }))} placeholder="123 Main Street, Bengaluru" required />
                                         </div>
-                                        
+
                                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' }}>
                                             <div className="form-group">
                                                 <label className="form-label">PIN Code</label>
@@ -1258,7 +1276,7 @@ export default function SellerDashboard() {
                                 <p className="text-muted" style={{ fontSize: '0.875rem' }}>Barcode: {existingProductPrompt.barcode}</p>
                             </div>
                         </div>
-                        
+
                         <div style={{ background: 'var(--bg-elevated)', padding: '16px', borderRadius: 'var(--radius-md)', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
                             {existingProductPrompt.product.image && (
                                 <img src={existingProductPrompt.product.image} alt="Product" style={{ width: 60, height: 60, objectFit: 'contain', borderRadius: 'var(--radius-sm)' }} />
@@ -1290,7 +1308,8 @@ export default function SellerDashboard() {
                         </div>
                     </div>
                     {/* Add required keyframes if not globally available, usually better to put in globals.css, but for encapsulation we use inline style tag */}
-                    <style dangerouslySetInnerHTML={{__html: `
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
                         @keyframes slideUpModal {
                             from { opacity: 0; transform: translateY(20px) scale(0.98); }
                             to { opacity: 1; transform: translateY(0) scale(1); }

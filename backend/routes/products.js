@@ -216,7 +216,7 @@ router.get('/low-stock', protect, requireRole('seller'), async (req, res) => {
     try {
         const shop = await Shop.findOne({ ownerId: req.user._id });
         if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
-        
+
         const products = await Product.find({ shopId: shop._id, stock: { $lt: 5 } }).sort({ stock: 1 });
         res.json({ success: true, count: products.length, products });
     } catch (err) {
@@ -278,6 +278,21 @@ router.put('/:id', protect, requireRole('seller'), async (req, res) => {
     }
 });
 
+// DELETE /api/products/:id — seller deletes their own product
+router.delete('/:id', protect, requireRole('seller'), async (req, res) => {
+    try {
+        const shop = await Shop.findOne({ ownerId: req.user._id });
+        if (!shop) return res.status(404).json({ success: false, message: 'Shop not found' });
+        const product = await Product.findOneAndDelete({ _id: req.params.id, shopId: shop._id });
+        if (!product) return res.status(404).json({ success: false, message: 'Product not found or unauthorized' });
+        // Clean up Neo4j node + all relationships (BOUGHT_WITH, SIMILAR_TO, vector index entry)
+        await neo4jService.deleteProduct(req.params.id);
+        res.json({ success: true, message: 'Product deleted' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // POST /api/products/barcode/lookup — look up by barcode
 router.post('/barcode/lookup', protect, requireRole('seller'), async (req, res) => {
     try {
@@ -285,7 +300,7 @@ router.post('/barcode/lookup', protect, requireRole('seller'), async (req, res) 
         if (!barcode) return res.status(400).json({ success: false, message: 'Barcode required' });
         const shop = await Shop.findOne({ ownerId: req.user._id });
         const product = await Product.findOne({ barcode, shopId: shop._id });
-        
+
         if (product) {
             return res.json({ success: true, found: true, external: false, product });
         }

@@ -81,7 +81,7 @@ async function fallbackSemanticSearch(queryVector, limit = 5, minScore = 0.55) {
     try {
         const Product = require('../models/Product');
         const products = await Product.find({ 'embedding.0': { $exists: true } }).select('_id name embedding').lean();
-        
+
         let results = [];
         for (const p of products) {
             if (!p.embedding || p.embedding.length === 0) continue;
@@ -90,7 +90,7 @@ async function fallbackSemanticSearch(queryVector, limit = 5, minScore = 0.55) {
                 results.push({ id: p._id.toString(), name: p.name, score });
             }
         }
-        
+
         results.sort((a, b) => b.score - a.score);
         return results.slice(0, limit);
     } catch (e) {
@@ -213,8 +213,23 @@ async function seedSimilarByCategory(products) {
     }
 }
 
+// Delete a product node and all its relationships from Neo4j
+async function deleteProduct(productId) {
+    const session = getDriver().session();
+    try {
+        await session.run(
+            `MATCH (p:Product {id: $productId}) DETACH DELETE p`,
+            { productId }
+        );
+    } catch (err) {
+        console.warn('Neo4j deleteProduct error (non-fatal):', err.message);
+    } finally {
+        await session.close();
+    }
+}
+
 async function closeDriver() {
     if (driver) { await driver.close(); driver = null; }
 }
 
-module.exports = { upsertProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver, initVectorIndex, semanticSearch, createSimilarRelationship };
+module.exports = { upsertProduct, deleteProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver, initVectorIndex, semanticSearch, createSimilarRelationship };
