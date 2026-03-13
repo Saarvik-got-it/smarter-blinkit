@@ -38,32 +38,16 @@ export default function MoneyMapPage() {
                 });
             }
 
-            // Fetch data
+            // Fetch data — /shops/money-map aggregates orders by shop, returning real shop names + coordinates
             let data: any[] = [];
             try {
-                const { data: res } = await api.get('/admin/storeboard');
-                const rawHeatmap = res.heatmapData || [];
-
-                // Reuse Seller Dashboard's heatmap source and adapt it to this page's existing bubble data shape.
-                data = rawHeatmap
-                    .filter((point: any) => Array.isArray(point) && point.length >= 3)
-                    .map((point: any, idx: number) => {
-                        const lat = Number(point[0]);
-                        const lng = Number(point[1]);
-                        const intensity = Number(point[2]) || 0;
-                        return {
-                            shopName: `Location ${idx + 1}`,
-                            coordinates: [lng, lat],
-                            address: 'Bengaluru',
-                            totalSales: Math.max(1, Math.round(intensity / 50)),
-                            totalRevenue: intensity,
-                        };
-                    });
+                const { data: res } = await api.get('/shops/money-map');
+                data = res.heatmapData || [];
 
                 setHeatmapData(data);
 
-                const totalRevenue = data.reduce((s: number, d: any) => s + d.totalRevenue, 0);
-                const totalSales = data.reduce((s: number, d: any) => s + d.totalSales, 0);
+                const totalRevenue = data.reduce((s: number, d: any) => s + (d.totalRevenue || 0), 0);
+                const totalSales = data.reduce((s: number, d: any) => s + (d.totalSales || 0), 0);
                 const topShop = data[0]?.shopName || 'N/A';
                 setStats({ totalRevenue, totalSales, topShop });
             } catch { }
