@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '@/lib/context';
+import { SOCKET_URL } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import FaceRegister from '@/components/FaceRegister';
 import { BrowserMultiFormatReader } from '@zxing/browser';
@@ -515,8 +516,7 @@ export default function SellerDashboard() {
     useEffect(() => {
         if (tab === 'storeboard') {
             api.get('/admin/storeboard').then(r => setStoreboardData(r.data));
-            const socketUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5000';
-            const socket = io(socketUrl);
+            const socket = io(SOCKET_URL);
             socket.on('newOrder', (data) => {
                 setLiveEvents(prev => [{ ...data, id: Date.now() }, ...prev].slice(0, 10)); // Keep last 10
                 // Re-fetch rankings on new order to keep charts strictly up-to-date

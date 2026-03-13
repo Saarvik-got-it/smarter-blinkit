@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Navbar from '@/components/Navbar';
 import { useApp } from '@/lib/context';
+import { SOCKET_URL } from '@/lib/api';
 import { io, Socket } from 'socket.io-client';
 
 export default function StoreboardPage() {
@@ -22,7 +23,7 @@ export default function StoreboardPage() {
         const interval = setInterval(fetchData, 15000); // refresh every 15s
 
         // Socket.io live events
-        const socket: Socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000');
+        const socket: Socket = io(SOCKET_URL);
         socket.emit('joinStoreboard');
         socket.on('newOrder', (evt) => {
             setLiveEvents(prev => [{ ...evt, id: Date.now() }, ...prev].slice(0, 10));

@@ -1,8 +1,9 @@
 'use client';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { API_URL } from '@/lib/api';
 
-const API = axios.create({ baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api' });
+const API = axios.create({ baseURL: API_URL });
 
 API.interceptors.request.use((config) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('sb_token') : null;
