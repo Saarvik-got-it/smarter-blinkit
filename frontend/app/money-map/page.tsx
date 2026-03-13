@@ -53,37 +53,150 @@ export default function MoneyMapPage() {
 
             // Init map
             if (mapRef.current && !mapInstanceRef.current && window.L) {
-                const map = window.L.map(mapRef.current).setView([12.9716, 77.5946], 13);
+                const map = window.L.map(mapRef.current, { zoomControl: true, preferCanvas: true }).setView([12.9716, 77.5946], 13);
                 mapInstanceRef.current = map;
+                const pulseIntervals: any[] = [];
+
+                const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
+                const getBaseRadius = (revenue: number, maxRevenue: number) => {
+                    const minRadius = 8;
+                    const maxRadius = 35;
+                    const normalized = Math.sqrt(Math.max(revenue, 0)) / Math.sqrt(Math.max(maxRevenue, 1));
+                    return clamp(minRadius + normalized * (maxRadius - minRadius), minRadius, maxRadius);
+                };
+                const getZoomScaledRadius = (baseRadius: number, zoom: number) => {
+                    const zoomBase = 13;
+                    const scaled = baseRadius * Math.pow(zoom / zoomBase, 0.9);
+                    return clamp(scaled, 6, 42);
+                };
+                const getRevenueColor = (intensity: number) => {
+                    if (intensity >= 0.8) return { fill: '#ff6b3d', stroke: '#ffbe9f', glow: '#ff8a4f' };
+                    if (intensity >= 0.6) return { fill: '#ff8f3f', stroke: '#ffd2a7', glow: '#ff9f50' };
+                    if (intensity >= 0.35) return { fill: '#86d64f', stroke: '#d5f5bc', glow: '#9de26b' };
+                    return { fill: '#46c870', stroke: '#b8f1cc', glow: '#67e093' };
+                };
+                const popupHtml = (shop: any) => `
+                    <div class="sales-popup-card">
+                        <div class="sales-popup-title">${shop.shopName || 'Shop'}</div>
+                        <div class="sales-popup-row"><span>📦</span><span>Sales: <strong>${shop.totalSales || 0}</strong></span></div>
+                        <div class="sales-popup-row"><span>💰</span><span>Revenue: <strong>₹${Number(shop.totalRevenue || 0).toFixed(0)}</strong></span></div>
+                        <div class="sales-popup-row"><span>📍</span><span>${shop.address || 'Bengaluru'}</span></div>
+                    </div>
+                `;
 
                 window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     attribution: '© OpenStreetMap contributors',
                 }).addTo(map);
 
-                // Add shop markers with custom radius proportional to revenue
+                // Add shop markers with normalized revenue scaling and zoom-aware resizing
                 if (data.length > 0) {
                     const maxRevenue = Math.max(...data.map((d: any) => d.totalRevenue), 1);
-                    data.forEach((shop: any) => {
+                    const enriched = data
+                        .filter((shop: any) => shop.coordinates && shop.coordinates.length >= 2)
+                        .map((shop: any) => {
+                            const intensity = Math.max(0.08, shop.totalRevenue / maxRevenue);
+                            const baseRadius = getBaseRadius(shop.totalRevenue || 0, maxRevenue);
+                            return { ...shop, intensity, baseRadius };
+                        })
+                        .sort((a: any, b: any) => (a.totalRevenue || 0) - (b.totalRevenue || 0));
+
+                    const markerBundle = enriched.map((shop: any) => {
                         if (!shop.coordinates || shop.coordinates.length < 2) return;
                         const [lng, lat] = shop.coordinates;
-                        const radius = 20 + (shop.totalRevenue / maxRevenue) * 60;
-                        const intensity = shop.totalRevenue / maxRevenue;
-                        const r = Math.round(intensity * 255);
-                        const g = Math.round((1 - intensity) * 210 + 100);
+                        const colors = getRevenueColor(shop.intensity);
+                        const marker = window.L.circleMarker([lat, lng], {
+                            radius: 0,
+                            fillColor: colors.fill,
+                            color: colors.stroke,
+                            weight: 1.3,
+                            opacity: 0,
+                            fillOpacity: 0,
+                        }).addTo(map);
 
-                        window.L.circleMarker([lat, lng], {
-                            radius,
-                            fillColor: `rgb(${r}, ${g}, 0)`,
-                            color: '#000',
-                            weight: 1,
-                            opacity: 0.8,
-                            fillOpacity: 0.6,
-                        }).addTo(map).bindPopup(`
-              <b>${shop.shopName}</b><br>
-              📦 Sales: ${shop.totalSales}<br>
-              💰 Revenue: ₹${shop.totalRevenue?.toFixed(0)}<br>
-              📍 ${shop.address || 'Bengaluru'}
-            `);
+                        // Outer glow ring to add visual depth and hierarchy.
+                        const glow = window.L.circleMarker([lat, lng], {
+                            radius: 0,
+                            fillColor: colors.glow,
+                            color: colors.glow,
+                            weight: 0,
+                            opacity: 0,
+                            fillOpacity: 0,
+                            interactive: false,
+                        }).addTo(map);
+
+                        marker.bindPopup(popupHtml(shop), { className: 'money-map-popup', autoPanPadding: [32, 32] });
+                        return { shop, marker, glow };
+                    }).filter(Boolean) as any[];
+
+                    const resizeMarkersForZoom = () => {
+                        const zoom = map.getZoom();
+                        markerBundle.forEach(({ shop, marker, glow }) => {
+                            const targetRadius = getZoomScaledRadius(shop.baseRadius, zoom);
+                            marker.setRadius(targetRadius);
+                            marker.setStyle({
+                                fillOpacity: 0.45 + Math.min(shop.intensity * 0.32, 0.28),
+                                opacity: 0.7,
+                            });
+                            glow.setRadius(targetRadius + 6);
+                            glow.setStyle({ fillOpacity: 0.12 + Math.min(shop.intensity * 0.18, 0.14), opacity: 0.2 });
+                        });
+                    };
+
+                    // Entry animation for polished first impression.
+                    markerBundle.forEach(({ shop, marker, glow }, idx) => {
+                        const finalRadius = getZoomScaledRadius(shop.baseRadius, map.getZoom());
+                        const finalGlowRadius = finalRadius + 6;
+                        setTimeout(() => {
+                            let frame = 0;
+                            const frames = 14;
+                            const timer = setInterval(() => {
+                                frame += 1;
+                                const t = frame / frames;
+                                const eased = 1 - Math.pow(1 - t, 3);
+                                marker.setRadius(finalRadius * eased);
+                                marker.setStyle({ opacity: 0.7 * eased, fillOpacity: (0.45 + Math.min(shop.intensity * 0.32, 0.28)) * eased });
+                                glow.setRadius(finalGlowRadius * eased);
+                                glow.setStyle({ opacity: 0.2 * eased, fillOpacity: (0.12 + Math.min(shop.intensity * 0.18, 0.14)) * eased });
+                                if (frame >= frames) clearInterval(timer);
+                            }, 18);
+                        }, idx * 35);
+
+                        // Hover highlight for better interactivity.
+                        marker.on('mouseover', () => {
+                            const activeRadius = getZoomScaledRadius(shop.baseRadius, map.getZoom()) + 3;
+                            marker.setRadius(activeRadius);
+                            marker.setStyle({ weight: 2, fillOpacity: 0.82, opacity: 0.95 });
+                            glow.setRadius(activeRadius + 9);
+                            glow.setStyle({ fillOpacity: 0.26, opacity: 0.3 });
+                            marker.bringToFront();
+                        });
+                        marker.on('mouseout', () => {
+                            const normalRadius = getZoomScaledRadius(shop.baseRadius, map.getZoom());
+                            marker.setRadius(normalRadius);
+                            marker.setStyle({ weight: 1.3, fillOpacity: 0.45 + Math.min(shop.intensity * 0.32, 0.28), opacity: 0.7 });
+                            glow.setRadius(normalRadius + 6);
+                            glow.setStyle({ fillOpacity: 0.12 + Math.min(shop.intensity * 0.18, 0.14), opacity: 0.2 });
+                        });
+
+                        // Subtle pulse for high-revenue bubbles.
+                        if (shop.intensity >= 0.75) {
+                            let pulseDirection = 1;
+                            const pulse = setInterval(() => {
+                                const base = getZoomScaledRadius(shop.baseRadius, map.getZoom());
+                                const delta = pulseDirection * 1.4;
+                                glow.setRadius(base + 7 + delta);
+                                glow.setStyle({ fillOpacity: 0.22 + (pulseDirection > 0 ? 0.06 : 0) });
+                                pulseDirection *= -1;
+                            }, 1100);
+                            pulseIntervals.push(pulse);
+                        }
+                    });
+
+                    resizeMarkersForZoom();
+                    map.on('zoomend', resizeMarkersForZoom);
+
+                    map.on('unload', () => {
+                        pulseIntervals.forEach((timer: any) => clearInterval(timer));
                     });
                 } else {
                     // Add sample markers for seeded shops (no orders yet)
@@ -92,19 +205,23 @@ export default function MoneyMapPage() {
                         { name: "Priya's Pharmacy & Fresh", lat: 12.9784, lng: 77.6413, revenue: 8400, sales: 120 },
                     ];
                     sampleShops.forEach(shop => {
-                        window.L.circleMarker([shop.lat, shop.lng], {
-                            radius: 35,
-                            fillColor: '#00d26a',
-                            color: '#001a0d',
-                            weight: 2,
-                            opacity: 0.9,
-                            fillOpacity: 0.65,
-                        }).addTo(map).bindPopup(`
-              <b>${shop.name}</b><br>
-              📦 Sales: ${shop.sales}<br>
-              💰 Est. Revenue: ₹${shop.revenue}<br>
-              💡 Place more orders to see real data
-            `);
+                        const marker = window.L.circleMarker([shop.lat, shop.lng], {
+                            radius: 18,
+                            fillColor: '#46c870',
+                            color: '#d6ffe5',
+                            weight: 1.5,
+                            opacity: 0.8,
+                            fillOpacity: 0.62,
+                        }).addTo(map);
+
+                        marker.bindPopup(`
+                            <div class="sales-popup-card">
+                                <div class="sales-popup-title">${shop.name}</div>
+                                <div class="sales-popup-row"><span>📦</span><span>Sales: <strong>${shop.sales}</strong></span></div>
+                                <div class="sales-popup-row"><span>💰</span><span>Est. Revenue: <strong>₹${shop.revenue}</strong></span></div>
+                                <div class="sales-popup-row"><span>💡</span><span>Place more orders to see live data</span></div>
+                            </div>
+                        `, { className: 'money-map-popup' });
                     });
                 }
             }
@@ -164,11 +281,8 @@ export default function MoneyMapPage() {
                     {/* Map */}
                     <motion.div variants={fadeUp} initial="hidden" animate="visible" className="card depth-card" style={{ padding: 0, overflow: 'hidden', borderRadius: 'var(--radius-xl)' }}>
                         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 600 }}>📍 Bengaluru Sales Map</span>
-                            <div style={{ display: 'flex', gap: 12, fontSize: '0.8rem', color: 'var(--text-muted)', alignItems: 'center' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#00d26a', display: 'inline-block' }} /> Low revenue</span>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff6b00', display: 'inline-block' }} /> High revenue</span>
-                            </div>
+                            <span style={{ fontWeight: 600 }}>📍 All Stores Sales Map</span>
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Bubble size tracks revenue (normalized)</span>
                         </div>
                         {loading ? (
                             <div style={{ height: 500, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
@@ -185,6 +299,21 @@ export default function MoneyMapPage() {
                     {/* Legend */}
                     <motion.div variants={fadeUp} initial="hidden" animate="visible" className="card" style={{ marginTop: 20 }}>
                         <h3 style={{ fontSize: '1rem', marginBottom: 12 }}>💡 How to read this map</h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 14, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'radial-gradient(circle at 30% 30%, #8af0ad, #35b861)' }} />
+                                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Low revenue</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ width: 18, height: 18, borderRadius: '50%', background: 'radial-gradient(circle at 30% 30%, #ffd28f, #ff8f3f)' }} />
+                                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Medium</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'radial-gradient(circle at 30% 30%, #ffc8af, #ff6b3d)' }} />
+                                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>High revenue</span>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 140, height: 8, borderRadius: 999, background: 'linear-gradient(90deg, #46c870 0%, #86d64f 40%, #ff8f3f 75%, #ff6b3d 100%)', opacity: 0.9 }} />
+                        </div>
                         <ul style={{ display: 'flex', flexDirection: 'column', gap: 8, color: 'var(--text-secondary)', fontSize: '0.875rem', listStyle: 'none' }}>
                             <li>🔵 <strong>Bubble size</strong> — larger bubbles = more revenue generated from that neighbourhood</li>
                             <li>🟢 <strong>Green bubbles</strong> — lower revenue areas (good opportunity to open new shops)</li>
@@ -193,6 +322,48 @@ export default function MoneyMapPage() {
                         </ul>
                     </motion.div>
                 </div>
+
+                <style>{`
+                    .money-map-popup .leaflet-popup-content-wrapper {
+                        border-radius: 14px;
+                        background: rgba(9, 18, 24, 0.96);
+                        color: #eaf7ef;
+                        box-shadow: 0 14px 32px rgba(0, 0, 0, 0.35);
+                        border: 1px solid rgba(96, 214, 140, 0.35);
+                        animation: popupIn 180ms ease-out;
+                    }
+                    .money-map-popup .leaflet-popup-tip {
+                        background: rgba(9, 18, 24, 0.96);
+                        border: 1px solid rgba(96, 214, 140, 0.35);
+                    }
+                    .money-map-popup .leaflet-popup-content {
+                        margin: 10px 12px;
+                        min-width: 210px;
+                    }
+                    .sales-popup-card {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 7px;
+                        font-size: 12.5px;
+                        line-height: 1.35;
+                    }
+                    .sales-popup-title {
+                        font-size: 13.5px;
+                        font-weight: 700;
+                        margin-bottom: 3px;
+                        color: #bff9d2;
+                    }
+                    .sales-popup-row {
+                        display: grid;
+                        grid-template-columns: 16px 1fr;
+                        gap: 6px;
+                        align-items: center;
+                    }
+                    @keyframes popupIn {
+                        from { opacity: 0; transform: translateY(6px) scale(0.96); }
+                        to { opacity: 1; transform: translateY(0) scale(1); }
+                    }
+                `}</style>
             </main>
         </>
     );
