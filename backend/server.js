@@ -14,6 +14,7 @@ const shopRoutes = require('./routes/shops');
 const paymentRoutes = require('./routes/payments');
 const aiRoutes = require('./routes/ai');
 const adminRoutes = require('./routes/admin');
+const reviewRoutes = require('./routes/reviews');
 const storeboardSocket = require('./sockets/storeboard');
 
 const app = express();
@@ -46,6 +47,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/cart', cartRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 app.get('/api/health', (_, res) => res.json({ status: 'OK', time: new Date() }));
 

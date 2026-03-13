@@ -132,6 +132,61 @@ We leverage a suite of modern APIs to power the "Smarter" features:
 - **Smart Delivery Route Visualization**: The cart sidebar now acts as a full logistics preview. When items span multiple shops it shows: optimized pickup order (nearest-neighbour algorithm), a horizontal flow bar (`Store A → Store B → Your Home`), per-stop summaries with item counts and ETA, and an interactive dark-themed Leaflet map with color-coded polylines (green = store-to-store, blue = last-mile delivery).
 - **Multi-Model AI Fallback Router**: All Gemini text-generation calls go through `aiRouter.js` which automatically cycles through a configurable priority list (`gemini-2.5-flash → gemini-2.0-flash → gemini-2.0-flash-lite → gemini-1.5-flash`) on rate-limit / quota errors. The last successful model is cached to reduce fallback switches. Every AI response includes a `modelUsed` field shown subtly in the UI.
 
+### Stage 7 — Dynamic Ratings & Reviews ✅
+- **Mongo-only review engine**: Added a dedicated `Review` collection for user feedback (`productId`, `shopId`, `userId`, `rating`, `reviewText`, timestamps).
+- **Duplicate review prevention**: Unique compound index on `(userId, productId)` enforces one review per user per product.
+- **Seed-preserving weighted product rating**: Added a dedicated `ProductRatingStat` collection to preserve baseline seeded ratings and blend real user reviews over time.
+- **Weighted formula**:
+    - `FinalProductRating = (SeedRating × SeedWeight + UserRatingSum) / (SeedWeight + UserReviewCount)`
+    - Default `SeedWeight = 20`.
+- **Dynamic shop rating from product ratings**:
+    - `ShopRating = Σ(ProductFinalRating × ProductWeightedCount) / Σ(ProductWeightedCount)`
+    - where `ProductWeightedCount = SeedWeight + UserReviewCount`.
+- **Product detail review UX**:
+    - Interactive 1–5 star selector with hover animation.
+    - Optional review text with input length cap.
+    - Sorting (`newest`, `highest`, `lowest`) and pagination.
+    - Real-time summary display (`⭐ x.x / 5`, review count).
+
+#### New Backend Files
+- `backend/models/Review.js`
+- `backend/models/ProductRatingStat.js`
+- `backend/routes/reviews.js`
+
+#### New API Endpoints
+- `POST /api/reviews/create`
+    - Auth required.
+    - Body: `{ productId, rating, reviewText? }`
+    - Validates rating range and review length.
+    - Prevents duplicate user reviews per product.
+- `GET /api/reviews/product/:productId?sortBy=newest|highest|lowest&page=1&limit=6`
+    - Returns weighted product rating summary + paginated reviews.
+- `GET /api/reviews/shop/:shopId`
+    - Returns dynamic shop rating derived from product-level weighted ratings.
+
+#### Frontend Integration
+- Updated `frontend/app/shop/[id]/page.tsx`:
+    - Loads product rating summary from `/api/reviews/product/:productId`.
+    - Loads dynamic shop rating from `/api/reviews/shop/:shopId`.
+    - Allows authenticated users to submit a single review.
+    - Renders review list with sorting and pagination controls.
+- Updated `frontend/app/globals.css`:
+    - Added review section visuals, star hover/fill animations, responsive review cards, and form styling.
+
+#### Validation Rules
+- User must be authenticated to create a review.
+- Rating must be between 1 and 5.
+- Review text maximum length is 600 characters.
+- One review per user per product is enforced at both API and DB-index layers.
+
+#### Verification Checklist
+1. Open product page and confirm weighted rating summary renders.
+2. Submit a new review while logged in and verify immediate summary update.
+3. Attempt duplicate review for same product and verify API rejection.
+4. Switch sort between newest/highest/lowest and verify order changes.
+5. Use pagination controls and verify page transitions.
+6. Confirm shop rating on product page reflects dynamic review-derived value.
+
 ---
 
 ## 🗺️ Geo-Spatial Location Engine
