@@ -303,16 +303,18 @@ export default function MoneyMapPage() {
                             <span style={{ fontWeight: 600 }}>📍 All Stores Sales Map</span>
                             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Bubble size tracks revenue (normalized)</span>
                         </div>
-                        {loading ? (
-                            <div style={{ height: 500, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    {[0, 1, 2].map(i => <div key={i} className="ai-thinking-dot" style={{ animationDelay: `${i * 0.2}s` }} />)}
+                        {/* Keep the map div always mounted so mapRef.current is valid when Leaflet inits */}
+                        <div style={{ position: 'relative', height: 500 }}>
+                            {loading && (
+                                <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, background: 'var(--bg-card, #0b1a14)', borderRadius: 'inherit' }}>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        {[0, 1, 2].map(i => <div key={i} className="ai-thinking-dot" style={{ animationDelay: `${i * 0.2}s` }} />)}
+                                    </div>
+                                    <p className="text-muted" style={{ fontSize: '0.85rem' }}>Loading map data...</p>
                                 </div>
-                                <p className="text-muted" style={{ fontSize: '0.85rem' }}>Loading map data...</p>
-                            </div>
-                        ) : (
+                            )}
                             <div ref={mapRef} style={{ height: 500, width: '100%' }} />
-                        )}
+                        </div>
                     </motion.div>
 
                     {/* Legend */}
