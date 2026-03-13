@@ -63,6 +63,7 @@ router.post('/', protect, requireRole('buyer'), async (req, res) => {
             enrichedItems.push({
                 productId: bestProduct._id,
                 shopId: bestProduct.shopId._id,
+                shopLocation: bestProduct.shopId.location?.coordinates || null,
                 name: bestProduct.name,
                 price: bestProduct.price,
                 quantity: item.quantity,
@@ -77,17 +78,17 @@ router.post('/', protect, requireRole('buyer'), async (req, res) => {
         if (userCoords && userCoords.length === 2 && userCoords[0] !== 0) {
             const uniqueShops = new Map();
             for (const item of enrichedItems) {
-                if (item.image) uniqueShops.set(item.shopId.toString(), item.shopLocation);
+                if (item.shopLocation) uniqueShops.set(item.shopId.toString(), item.shopLocation);
             }
 
             const coords = Array.from(uniqueShops.values()).filter(Boolean);
             if (coords.length > 0) {
-                coords.push(userCoords); // Last coordinate is user location
+                coords.push(userCoords); // Last coordinate is always the user's home (destination=last)
                 const coordString = coords.map(c => `${c[0]},${c[1]}`).join(';');
                 try {
-                    // source=first means driver starts at shop 1, destination=last means ends at user.
-                    // This creates an Open Source VRP representation.
-                    const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coordString}?source=first&destination=last&roundtrip=false`;
+                    // source=any lets OSRM find the optimal starting shop (farthest first).
+                    // destination=last guarantees the route ends at the customer's home.
+                    const osrmUrl = `https://router.project-osrm.org/trip/v1/driving/${coordString}?source=any&destination=last&roundtrip=false`;
                     const { data } = await axios.get(osrmUrl, { timeout: 3000 });
                     if (data.code === 'Ok') {
                         optimizedRoute = data.trips[0];

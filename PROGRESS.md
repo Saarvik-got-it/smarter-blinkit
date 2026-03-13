@@ -41,6 +41,13 @@
 - [x] Secure admin panel (/admin/users)
 - [x] Saved addresses feature (address book + active address switching)
 
+### Stage 6 — Smart Logistics & Resilience ✅
+- [x] Smart Delivery Route Visualization (nearest-neighbour optimizer, Leaflet dark map, polylines, ETA, pickup summary)
+- [x] Multi-model AI fallback router (`aiRouter.js` — priority list: gemini-2.5-flash → gemini-2.0-flash → lite → 1.5-flash)
+- [x] Per-response `modelUsed` field + subtle frontend indicator on AI agent page and intent search
+- [x] AI model priority list centralized in `backend/config/aiModels.js`
+- [x] Shop coordinates surfaced in cart analysis response for frontend route visualization
+
 ### Stage 5 — Reliability ✅
 - [x] Instant Neo4j fail-fast (3s connection timeout)
 - [x] In-memory semantic search fallback (MongoDB embeddings + local cosine similarity)

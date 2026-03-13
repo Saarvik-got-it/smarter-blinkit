@@ -173,7 +173,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (existing) return c.map(x => x.productId === item.productId ? { ...x, quantity: x.quantity + (item.quantity || 1) } : x);
             return [...c, { ...item, quantity: item.quantity || 1 }];
         });
-        setCartOpen(true);
+        // Cart does NOT auto-open — user clicks cart icon to view it
         toast(`${item.name} added to cart`);
     };
 
@@ -190,7 +190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
             return newCart;
         });
-        setCartOpen(true);
+        // Cart does NOT auto-open — user clicks cart icon to view it
         if (items.length === 1) {
             toast(`${items[0].name} added to cart`);
         } else if (items.length > 1) {

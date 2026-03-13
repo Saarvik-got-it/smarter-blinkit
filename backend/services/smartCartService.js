@@ -107,6 +107,8 @@ async function analyzeCart(rawCartItems, userCoords) {
             shopId: bestProduct.shopId._id.toString(),
             shopName: bestProduct.shopId.name,
             shopRating: bestProduct.shopId.rating,
+            shopCoordinates: bestProduct.shopId.location?.coordinates || null,
+            shopAddress: bestProduct.shopId.location?.address || '',
             name: bestProduct.name,
             price: bestProduct.price,
             quantity: item.quantity,
@@ -115,16 +117,28 @@ async function analyzeCart(rawCartItems, userCoords) {
         });
     }
 
+    // Build shop location lookup from enriched items (for route visualization)
+    const shopLocMap = {};
+    for (const item of enrichedItems) {
+        if (item.shopCoordinates && !shopLocMap[item.shopId.toString()]) {
+            shopLocMap[item.shopId.toString()] = {
+                coordinates: item.shopCoordinates,
+                address: item.shopAddress || ''
+            };
+        }
+    }
+
     // Split using existing logic
     const shopGroups = cartSplitter(enrichedItems);
     
-    // Add delivery estimate to groups
+    // Add delivery estimate and shop location to groups
     for (const group of shopGroups) {
         let maxTime = 0;
         for(let item of group.items) {
            if (item.deliveryMins > maxTime) maxTime = item.deliveryMins;
         }
         group.deliveryEstimateMins = maxTime || 30;
+        group.shopLocation = shopLocMap[group.shopId.toString()] || null;
     }
 
     // Subtotal and Fee Logic
