@@ -65,6 +65,7 @@ router.post('/', protect, requireRole('buyer'), async (req, res) => {
                 shopId: bestProduct.shopId._id,
                 shopLocation: bestProduct.shopId.location?.coordinates || null,
                 name: bestProduct.name,
+                category: bestProduct.category,
                 price: bestProduct.price,
                 quantity: item.quantity,
                 image: bestProduct.image,
@@ -123,11 +124,17 @@ router.post('/', protect, requireRole('buyer'), async (req, res) => {
                 $inc: { stock: -item.quantity, salesCount: item.quantity },
             });
             await Shop.findByIdAndUpdate(item.shopId, { $inc: { totalOrders: 1 } });
+            await neo4jService.incrementProductSales(item.productId.toString(), item.quantity);
         }
 
         // Update Neo4j BOUGHT_WITH relationships
         const boughtProductIds = enrichedItems.map((i) => i.productId.toString());
-        await neo4jService.recordBoughtTogether(boughtProductIds);
+        const boughtProductsMeta = enrichedItems.map((i) => ({
+            id: i.productId.toString(),
+            name: i.name,
+            category: i.category,
+        }));
+        await neo4jService.recordBoughtTogether(boughtProductIds, boughtProductsMeta);
 
         // Emit to live storeboard
         req.io.emit('newOrder', { order: order._id, shopGroups, totalAmount, timestamp: new Date() });

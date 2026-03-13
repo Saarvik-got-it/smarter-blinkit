@@ -45,7 +45,13 @@ async function generateAndSyncEmbedding(product) {
         product.embedding = embedding;
         await product.save();
 
-        const upsertResult = await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, embedding);
+        const upsertResult = await neo4jService.upsertProduct(
+            product._id.toString(),
+            product.name,
+            product.category,
+            embedding,
+            { price: product.price, salesCount: product.salesCount || 0 }
+        );
         const neo4jEmbeddingSize = await neo4jService.getProductEmbeddingSize(product._id.toString());
         console.log(
             `[EmbeddingPipeline] product=${product._id} mongoEmbeddingLength=${embedding.length} neo4jEmbeddingLength=${neo4jEmbeddingSize ?? 0} neo4jUpsertOk=${upsertResult?.ok === true}`
@@ -55,7 +61,13 @@ async function generateAndSyncEmbedding(product) {
     } catch (err) {
         console.error(`[EmbeddingPipeline] Failed for product=${product._id} name="${product.name}":`, err.message);
         // Fallback to text-only sync if embedding fails
-        const upsertResult = await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, []);
+        const upsertResult = await neo4jService.upsertProduct(
+            product._id.toString(),
+            product.name,
+            product.category,
+            [],
+            { price: product.price, salesCount: product.salesCount || 0 }
+        );
         const neo4jEmbeddingSize = await neo4jService.getProductEmbeddingSize(product._id.toString());
         console.warn(
             `[EmbeddingPipeline] Text-only fallback for product=${product._id}. neo4jEmbeddingLength=${neo4jEmbeddingSize ?? 0} neo4jUpsertOk=${upsertResult?.ok === true}`
@@ -165,19 +177,49 @@ router.get('/search', async (req, res) => {
 router.get('/:id/suggestions', async (req, res) => {
     try {
         const { id } = req.params;
+        const sourceProduct = await Product.findById(id).select('name category embedding').lean();
+        if (!sourceProduct) return res.status(404).json({ success: false, message: 'Product not found' });
+
         let suggestions = await neo4jService.getSuggestions(id);
+
+        // Remove stale graph-only nodes so recommendation cards always resolve to valid products.
+        if (suggestions.length) {
+            const validProducts = await Product.find({
+                _id: { $in: suggestions.map((s) => s.id) },
+                isAvailable: true,
+                stock: { $gt: 0 },
+            }).select('_id').lean();
+            const validIds = new Set(validProducts.map((p) => p._id.toString()));
+            suggestions = suggestions.filter((s) => validIds.has(String(s.id)));
+        }
+
+        // Keep recommendations diverse by dropping exact-name duplicates.
+        const seenSuggestionNames = new Set();
+        suggestions = suggestions.filter((s) => {
+            const key = String(s.name || '').trim().toLowerCase();
+            const sourceKey = String(sourceProduct.name || '').trim().toLowerCase();
+            if (!key) return false;
+            if (sourceKey && key === sourceKey) return false;
+            if (seenSuggestionNames.has(key)) return false;
+            seenSuggestionNames.add(key);
+            return true;
+        });
 
         // --- Smart Product Pairing: Fallback to NLP Semantic Search ---
         if (suggestions.length < 4) {
-            const product = await Product.findById(id).select('embedding');
-            if (product && product.embedding && product.embedding.length > 0) {
-                const semanticResults = await neo4jService.semanticSearch(product.embedding, 6, 0.50);
+            if (sourceProduct.embedding && sourceProduct.embedding.length > 0) {
+                const semanticResults = await neo4jService.semanticSearch(sourceProduct.embedding, 6, 0.50);
 
                 // Deduplicate and append semantic matches disguised as "SIMILAR_TO"
                 const existingIds = new Set([id, ...suggestions.map(s => s.id.toString())]);
+                const existingNames = new Set([
+                    String(sourceProduct.name || '').trim().toLowerCase(),
+                    ...suggestions.map(s => String(s.name || '').trim().toLowerCase()).filter(Boolean),
+                ]);
 
                 for (const s of semanticResults) {
-                    if (!existingIds.has(s.id.toString())) {
+                    const semanticNameKey = String(s.name || '').trim().toLowerCase();
+                    if (!existingIds.has(s.id.toString()) && semanticNameKey && !existingNames.has(semanticNameKey)) {
                         suggestions.push({
                             id: s.id,
                             name: s.name,
@@ -186,6 +228,7 @@ router.get('/:id/suggestions', async (req, res) => {
                             isSemantic: true
                         });
                         existingIds.add(s.id.toString());
+                        existingNames.add(semanticNameKey);
                         if (suggestions.length >= 6) break;
                     }
                 }
@@ -194,10 +237,9 @@ router.get('/:id/suggestions', async (req, res) => {
 
         // --- Tier 3: MongoDB Category Fallback (Last Resort) ---
         if (suggestions.length < 2) {
-            const product = await Product.findById(id);
-            if (product) {
+            if (sourceProduct) {
                 const categoryMatches = await Product.find({
-                    category: product.category,
+                    category: sourceProduct.category,
                     _id: { $ne: id }
                 }).limit(6).select('name _id');
 
@@ -271,16 +313,10 @@ router.post('/', protect, requireRole('seller'), async (req, res) => {
         // Generate embedding and sync to Mongo/Neo4j first so node exists before relationship linking
         const embeddingSyncMeta = await generateAndSyncEmbedding(product);
 
-        // Add SIMILAR_TO relationships via category in Neo4j
+        // Build high-signal SIMILAR_TO relationships for this product
         try {
-            const similarProducts = await Product.find({
-                category: product.category,
-                _id: { $ne: product._id }
-            }).limit(3).select('_id');
-            for (const sim of similarProducts) {
-                await neo4jService.createSimilarRelationship(product._id.toString(), sim._id.toString());
-            }
-            console.log(`[EmbeddingPipeline] Created ${similarProducts.length} SIMILAR_TO links for product=${product._id}`);
+            const similarMeta = await neo4jService.refreshSimilarRelationships(product._id.toString(), { limit: 10, minSimilarity: 0.42 });
+            console.log(`[EmbeddingPipeline] Refreshed SIMILAR_TO links for product=${product._id} linked=${similarMeta.linked || 0}`);
         } catch (simErr) {
             console.warn('Failed to add SIMILAR_TO relationships:', simErr.message);
         }
@@ -304,6 +340,13 @@ router.put('/:id', protect, requireRole('seller'), async (req, res) => {
 
         // Re-generate embedding in case name/category/desc changed
         await generateAndSyncEmbedding(product);
+
+        // Recompute SIMILAR_TO neighbors for changed product
+        try {
+            await neo4jService.refreshSimilarRelationships(product._id.toString(), { limit: 10, minSimilarity: 0.42 });
+        } catch (simErr) {
+            console.warn('Failed to refresh SIMILAR_TO relationships on update:', simErr.message);
+        }
 
         res.json({ success: true, product });
     } catch (err) {
