@@ -12,23 +12,55 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Helper function to dynamically generate and sync embeddings
 const delay = ms => new Promise(res => setTimeout(res, ms));
+const EMBEDDING_RETRIES = 2;
 
 async function generateAndSyncEmbedding(product) {
-    try {
-        await delay(2000); // 2s Rate limit throttle to protect Gemini Free Tier
-        const textToEmbed = `${product.name} ${product.category} ${product.description || ''}`.trim();
+    const textToEmbed = `${product.name} ${product.category} ${product.description || ''}`.trim();
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
-        const result = await model.embedContent(textToEmbed);
-        const embedding = result.embedding.values;
+    try {
+        if (!textToEmbed) {
+            console.warn(`[EmbeddingPipeline] Empty embedding input for product=${product._id}. Falling back to text-only Neo4j upsert.`);
+            await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, []);
+            return { status: 'text-only', embeddingLength: 0 };
+        }
+
+        let embedding;
+        for (let attempt = 1; attempt <= EMBEDDING_RETRIES; attempt++) {
+            try {
+                await delay(2000); // Rate limit throttle to protect Gemini Free Tier
+                const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+                const result = await model.embedContent(textToEmbed);
+                embedding = result.embedding.values;
+
+                if (!neo4jService.isValidEmbedding(embedding)) {
+                    throw new Error(`Embedding dimension mismatch. Expected ${neo4jService.EMBEDDING_DIMENSION}, got ${Array.isArray(embedding) ? embedding.length : 'non-array'}`);
+                }
+                break;
+            } catch (attemptErr) {
+                console.warn(`[EmbeddingPipeline] Attempt ${attempt}/${EMBEDDING_RETRIES} failed for product=${product._id}: ${attemptErr.message}`);
+                if (attempt === EMBEDDING_RETRIES) throw attemptErr;
+            }
+        }
 
         product.embedding = embedding;
         await product.save();
-        await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, embedding);
+
+        const upsertResult = await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, embedding);
+        const neo4jEmbeddingSize = await neo4jService.getProductEmbeddingSize(product._id.toString());
+        console.log(
+            `[EmbeddingPipeline] product=${product._id} mongoEmbeddingLength=${embedding.length} neo4jEmbeddingLength=${neo4jEmbeddingSize ?? 0} neo4jUpsertOk=${upsertResult?.ok === true}`
+        );
+
+        return { status: 'vector-synced', embeddingLength: embedding.length, neo4jEmbeddingLength: neo4jEmbeddingSize ?? 0 };
     } catch (err) {
-        console.error('Failed to generate/sync embedding for product:', product.name, err.message);
+        console.error(`[EmbeddingPipeline] Failed for product=${product._id} name="${product.name}":`, err.message);
         // Fallback to text-only sync if embedding fails
-        await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, []);
+        const upsertResult = await neo4jService.upsertProduct(product._id.toString(), product.name, product.category, []);
+        const neo4jEmbeddingSize = await neo4jService.getProductEmbeddingSize(product._id.toString());
+        console.warn(
+            `[EmbeddingPipeline] Text-only fallback for product=${product._id}. neo4jEmbeddingLength=${neo4jEmbeddingSize ?? 0} neo4jUpsertOk=${upsertResult?.ok === true}`
+        );
+        return { status: 'text-only', embeddingLength: 0, neo4jEmbeddingLength: neo4jEmbeddingSize ?? 0 };
     }
 }
 
@@ -236,6 +268,9 @@ router.post('/', protect, requireRole('seller'), async (req, res) => {
             location: shop.location // Inherit shop coordinates [lng, lat]
         });
 
+        // Generate embedding and sync to Mongo/Neo4j first so node exists before relationship linking
+        const embeddingSyncMeta = await generateAndSyncEmbedding(product);
+
         // Add SIMILAR_TO relationships via category in Neo4j
         try {
             const similarProducts = await Product.find({
@@ -245,14 +280,12 @@ router.post('/', protect, requireRole('seller'), async (req, res) => {
             for (const sim of similarProducts) {
                 await neo4jService.createSimilarRelationship(product._id.toString(), sim._id.toString());
             }
+            console.log(`[EmbeddingPipeline] Created ${similarProducts.length} SIMILAR_TO links for product=${product._id}`);
         } catch (simErr) {
             console.warn('Failed to add SIMILAR_TO relationships:', simErr.message);
         }
 
-        // Generate embedding and sync to Mongo/Neo4j
-        await generateAndSyncEmbedding(product);
-
-        res.status(201).json({ success: true, product });
+        res.status(201).json({ success: true, product, embeddingSyncMeta });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }

@@ -2,6 +2,11 @@ const neo4j = require('neo4j-driver');
 require('dotenv').config();
 
 let driver;
+const EMBEDDING_DIMENSION = 3072;
+
+function isValidEmbedding(embedding) {
+    return Array.isArray(embedding) && embedding.length === EMBEDDING_DIMENSION && embedding.every((v) => Number.isFinite(v));
+}
 
 const getDriver = () => {
     if (!driver) {
@@ -18,7 +23,15 @@ const getDriver = () => {
 async function upsertProduct(productId, name, category, embedding = null) {
     const session = getDriver().session();
     try {
-        if (embedding && embedding.length > 0) {
+        const hasValidEmbedding = isValidEmbedding(embedding);
+
+        if (embedding && !hasValidEmbedding) {
+            console.warn(
+                `Neo4j upsertProduct: invalid embedding for ${productId}. Expected ${EMBEDDING_DIMENSION}, got ${Array.isArray(embedding) ? embedding.length : 'non-array'}.`
+            );
+        }
+
+        if (hasValidEmbedding) {
             await session.run(
                 `MERGE (p:Product {id: $productId})
                  SET p.name = $name, p.category = $category, p.embedding = $embedding`,
@@ -32,8 +45,28 @@ async function upsertProduct(productId, name, category, embedding = null) {
                 { productId, name, category }
             );
         }
+        return { ok: true, hasEmbedding: hasValidEmbedding };
     } catch (err) {
         console.error('Neo4j upsertProduct error:', err.message);
+        return { ok: false, hasEmbedding: false, error: err.message };
+    } finally {
+        await session.close();
+    }
+}
+
+async function getProductEmbeddingSize(productId) {
+    const session = getDriver().session();
+    try {
+        const result = await session.run(
+            `MATCH (p:Product {id: $productId})
+             RETURN CASE WHEN p.embedding IS NULL THEN 0 ELSE size(p.embedding) END AS embeddingSize`,
+            { productId }
+        );
+        if (!result.records.length) return null;
+        return Number(result.records[0].get('embeddingSize'));
+    } catch (err) {
+        console.error('Neo4j getProductEmbeddingSize error:', err.message);
+        return null;
     } finally {
         await session.close();
     }
@@ -232,4 +265,4 @@ async function closeDriver() {
     if (driver) { await driver.close(); driver = null; }
 }
 
-module.exports = { upsertProduct, deleteProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver, initVectorIndex, semanticSearch, createSimilarRelationship };
+module.exports = { upsertProduct, deleteProduct, recordBoughtTogether, getSuggestions, seedSimilarByCategory, closeDriver, initVectorIndex, semanticSearch, createSimilarRelationship, isValidEmbedding, getProductEmbeddingSize, EMBEDDING_DIMENSION };

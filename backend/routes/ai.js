@@ -12,6 +12,10 @@ const aiRouter = require('../services/aiRouter');
 const router = express.Router();
 // Kept for embeddings only — text generation goes through aiRouter
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const INTENT_SEMANTIC_LIMIT = 12;
+const INTENT_SEMANTIC_MIN_SCORE = 0.78;
+const RECIPE_SEMANTIC_LIMIT = 8;
+const RECIPE_SEMANTIC_MIN_SCORE = 0.78;
 
 // ─────────────────────────────────────────────
 // Shared helper: generate Gemini text-embedding-004
@@ -146,7 +150,8 @@ Rules:
             if (!products.length) {
                 const queryVector = await generateEmbedding(ingredient.searchQuery);
                 if (queryVector) {
-                    const semanticResults = await neo4jService.semanticSearch(queryVector, 20, 0.70); // High threshold
+                    const semanticResults = await neo4jService.semanticSearch(queryVector, RECIPE_SEMANTIC_LIMIT, RECIPE_SEMANTIC_MIN_SCORE);
+                    console.log(`[AI Recipe] ingredient="${ingredient.searchQuery}" semanticHits=${semanticResults.length} threshold=${RECIPE_SEMANTIC_MIN_SCORE}`);
                     const productIds = semanticResults.map(r => r.id);
                     let q = {
                         _id: { $in: productIds },
@@ -261,8 +266,10 @@ User query: "${query}"`;
         // 1. Try vector search
         const queryVector = await generateEmbedding(query);
         if (queryVector) {
-            const semanticResults = await neo4jService.semanticSearch(queryVector, 100);
+            const semanticResults = await neo4jService.semanticSearch(queryVector, INTENT_SEMANTIC_LIMIT, INTENT_SEMANTIC_MIN_SCORE);
             const productIds = semanticResults.map(r => r.id);
+            const semanticMetaById = new Map(semanticResults.map((r, index) => [r.id, { score: Number(r.score), rank: index }]));
+            console.log(`[AI Intent] query="${query}" semanticHits=${semanticResults.length} threshold=${INTENT_SEMANTIC_MIN_SCORE}`);
 
             let queryObj = { _id: { $in: productIds }, isAvailable: true, stock: { $gt: 0 } };
 
@@ -284,7 +291,15 @@ User query: "${query}"`;
             const products = await Product.find(queryObj).populate('shopId', 'name location rating');
 
             for (const p of products) {
-                productMatchMap.set(p._id.toString(), { product: p, matchedKeyword: 'Semantic Match', count: 5 });
+                const id = p._id.toString();
+                const meta = semanticMetaById.get(id);
+                const semanticBoost = meta ? Math.max(1, 3 - Math.floor(meta.rank / 4)) : 1; // ranks 1-4 => 3, 5-8 => 2, 9-12 => 1
+                productMatchMap.set(id, {
+                    product: p,
+                    matchedKeyword: 'Semantic Match',
+                    count: semanticBoost,
+                    semanticScore: meta ? meta.score : 0,
+                });
             }
         }
 
@@ -324,7 +339,7 @@ User query: "${query}"`;
         }
 
         const results = Array.from(productMatchMap.values())
-            .sort((a, b) => b.count - a.count || (b.product.salesCount || 0) - (a.product.salesCount || 0));
+            .sort((a, b) => b.count - a.count || (b.semanticScore || 0) - (a.semanticScore || 0) || (b.product.salesCount || 0) - (a.product.salesCount || 0));
 
         res.json({ success: true, query, expandedKeywords: keywords, count: results.length, results, fallback: usedFallback, modelUsed: modelUsed || null });
     } catch (err) {
