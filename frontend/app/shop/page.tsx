@@ -225,7 +225,7 @@ export default function ShopPage() {
                                     </div>
                                     <button onClick={() => setSelectedShops([])} className="btn btn-secondary btn-sm">← Back to all shops</button>
                                 </div>
-                                    <div className="product-grid">
+                                <div className="product-grid">
                                     {products.map(p => (
                                         <div key={p._id} className={`product-card${p.stock === 0 ? ' out-of-stock' : ''}`}>
                                             <Link href={`/shop/${p._id}`}>

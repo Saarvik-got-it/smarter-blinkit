@@ -2,6 +2,14 @@
 
 > An AI-powered marketplace connecting buyers and local sellers. Instead of item-by-item searching, simply describe what you need — the AI fills your cart automatically.
 
+## 🌐 Live Demo
+
+The project is now deployed and accessible online.
+
+🔗 [https://smarter-blinkit-two.vercel.app](https://smarter-blinkit-two.vercel.app)
+
+---
+
 **NOTE:** The platform is fully functional with all 4 stages (Foundation, Automator, Orchestrator, God Mode) complete, however some features need refinement according to the project demands and responsiveness.
 
 **Current Focus and Status:**
@@ -10,7 +18,7 @@
 * Not have given much time to the UI/UX part (frontend), so it needs lot of improvement, design and animations.
 
 
-**Status: 🟢 Features Working**
+**Status: 🟢 Deployed**
 
 * Dual Login
 * Face ID Login
@@ -410,4 +418,4 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 
 ---
 
-*Last updated: Stripe Integration + Smart Filters — March 2026*
+*Last updated: Deployed to Vercel — March 2026*
