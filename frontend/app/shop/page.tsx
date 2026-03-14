@@ -276,19 +276,59 @@ export default function ShopPage() {
                                 });
                                 const sortedShops = Object.values(shopsMap).sort((a, b) => (a.shop.distance || 0) - (b.shop.distance || 0));
 
-                                // Derive discovery rows from products already loaded
-                                const trendingProducts = [...products]
+                                // Derive discovery rows from products already loaded (frontend-only ranking)
+                                const scoredTrending = products
                                     .filter(p => p.stock > 0)
-                                    .slice(0, 12);
-                                const essentials = [...products]
-                                    .filter(p => p.stock > 5 && (p.distance === undefined || p.distance < 5))
-                                    .slice(0, 10);
+                                    .map((p, index) => {
+                                        const safePrice = Math.max(Number(p.price) || 1, 1);
+                                        const priceScore = 1 / safePrice;
+                                        const recencyScore = (products.length - index) / Math.max(products.length, 1);
+                                        const trendingScore =
+                                            Math.random() * 0.5 +
+                                            priceScore * 0.2 +
+                                            recencyScore * 0.3;
 
-                                const renderProductCard = (p: any, compact = false) => (
+                                        return { ...p, trendingScore };
+                                    })
+                                    .sort((a, b) => b.trendingScore - a.trendingScore);
+
+                                // Light post-sort shuffle so rows feel less deterministic while preserving ranking intent.
+                                const lightlyShuffledTrending = [...scoredTrending];
+                                for (let i = 0; i < lightlyShuffledTrending.length - 1; i += 1) {
+                                    if (Math.random() < 0.28) {
+                                        const temp = lightlyShuffledTrending[i];
+                                        lightlyShuffledTrending[i] = lightlyShuffledTrending[i + 1];
+                                        lightlyShuffledTrending[i + 1] = temp;
+                                    }
+                                }
+
+                                const trendingProducts = lightlyShuffledTrending.slice(0, 8);
+                                const trendingBadgeOffset = Math.floor(Math.random() * 3);
+
+                                const renderProductCard = (p: any, compact = false, showTrendingBadge = false) => (
                                     <div key={p._id} className={`product-card${p.stock === 0 ? ' out-of-stock' : ''}`} style={{ width: compact ? '190px' : '230px' }}>
                                         <Link href={`/shop/${p._id}`}>
-                                            <div className="product-card-image">
+                                            <div className="product-card-image" style={{ position: 'relative' }}>
                                                 {p.image ? <img src={p.image} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : getCategoryEmoji(p.category)}
+                                                {showTrendingBadge && (
+                                                    <span
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: '8px',
+                                                            right: '8px',
+                                                            fontSize: '0.66rem',
+                                                            fontWeight: 800,
+                                                            color: '#fff',
+                                                            padding: '4px 8px',
+                                                            borderRadius: '999px',
+                                                            letterSpacing: '0.02em',
+                                                            background: 'linear-gradient(135deg, #fb923c 0%, #ef4444 100%)',
+                                                            boxShadow: '0 6px 14px rgba(239,68,68,0.35)'
+                                                        }}
+                                                    >
+                                                        Trending
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="product-card-body" style={{ padding: '12px 14px' }}>
                                                 <div className="product-card-name" style={{ fontSize: '0.88rem', height: '2.4rem', overflow: 'hidden' }}>{p.name}</div>
@@ -329,26 +369,12 @@ export default function ShopPage() {
                                             <div className="discovery-section shop-section-ambient">
                                                 <div className="discovery-header">
                                                     <div className="discovery-title">
-                                                        🔥 Trending Near You
+                                                        Trending Near You <span style={{ fontSize: '0.95rem' }}>🔥</span>
                                                         <span className="discovery-label">Hot right now</span>
                                                     </div>
                                                 </div>
                                                 <ProductCarousel>
-                                                    {trendingProducts.map(p => renderProductCard(p, true))}
-                                                </ProductCarousel>
-                                            </div>
-                                        )}
-
-                                        {!query.trim() && essentials.length >= 3 && (
-                                            <div className="discovery-section">
-                                                <div className="discovery-header">
-                                                    <div className="discovery-title">
-                                                        ⚡ 10-Minute Essentials
-                                                        <span className="discovery-label blue">Nearby stock</span>
-                                                    </div>
-                                                </div>
-                                                <ProductCarousel>
-                                                    {essentials.map(p => renderProductCard(p, true))}
+                                                    {trendingProducts.map((p, i) => renderProductCard(p, true, (i + trendingBadgeOffset) % 3 === 0))}
                                                 </ProductCarousel>
                                             </div>
                                         )}
