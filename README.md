@@ -294,44 +294,6 @@ npm run dev
 ### 4. Open App
 Visit `http://localhost:3000`
 
----
-
-## 📁 Project Structure
-```
-smarter-blinkit/
-├── frontend/                    # Next.js 14 app
-│   ├── app/
-│   │   ├── page.tsx            # Landing page
-│   │   ├── login/              # Login (+ Face ID)
-│   │   ├── register/           # Buyer / Seller registration
-│   │   ├── dashboard/          # Role-based dashboard
-│   │   ├── shop/               # Shop + intent search
-│   │   │   └── [id]/           # Product detail + Neo4j suggestions
-│   │   ├── ai-agent/           # AI Recipe Agent (Gemini)
-│   │   ├── storeboard/         # Live Socket.io dashboard
-│   │   └── money-map/          # Leaflet.js revenue heatmap
-│   ├── components/
-│   │   ├── Navbar.tsx
-│   │   ├── CartSidebar.tsx     # Cart with mock checkout & location
-│   │   ├── FaceLogin.tsx       # face-api.js face recognition login
-│   │   ├── FaceRegister.tsx    # face-api.js enrollment
-│   │   ├── BuyerDashboard.tsx
-│   │   └── SellerDashboard.tsx # Inventory + native BarcodeDetector scanner tab
-│   └── lib/context.tsx         # Global state (auth, cart, toasts)
-│
-├── backend/                     # Express API
-│   ├── server.js               # Entry point (MongoDB + Socket.io)
-│   ├── seed.js                 # Mock data seeder (42 products, 2 shops)
-│   ├── models/                 # User, Product, Shop, Order
-│   ├── routes/                 # auth, products, orders, shops, payments, ai, admin
-│   ├── middleware/auth.js      # JWT + role guard
-│   ├── services/
-│   │   ├── neo4j.js           # Graph DB service (BOUGHT_WITH, SIMILAR_TO)
-│   │   └── cartSplitter.js    # Multi-shop cart splitting
-│   └── sockets/storeboard.js  # Real-time Socket.io events
-│
-├── .env.example                # Required environment variables
-└── README.md
 ```
 
 ---
